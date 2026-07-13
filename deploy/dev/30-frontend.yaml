@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-web
+  namespace: aiops-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: aiops-web}
+  template:
+    metadata:
+      labels: {app: aiops-web}
+    spec:
+      nodeSelector: {kubernetes.io/hostname: k8s-cp01}
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      initContainers:
+        - name: install-dependencies
+          image: node:22-alpine
+          workingDir: /workspace
+          command: ["sh", "-ec", "npm install --no-package-lock"]
+          volumeMounts:
+            - {name: source, mountPath: /workspace}
+            - {name: node-modules, mountPath: /workspace/node_modules}
+      containers:
+        - name: web
+          image: node:22-alpine
+          workingDir: /workspace
+          command: ["sh", "-ec", "npm run dev"]
+          env:
+            - {name: VITE_API_PROXY, value: http://aiops-api:8000}
+          ports:
+            - {name: http, containerPort: 5173}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: 750m, memory: 768Mi}
+          volumeMounts:
+            - {name: source, mountPath: /workspace}
+            - {name: node-modules, mountPath: /workspace/node_modules}
+      volumes:
+        - name: source
+          hostPath: {path: /root/aiops-console/frontend, type: Directory}
+        - name: node-modules
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-web
+  namespace: aiops-dev
+spec:
+  type: NodePort
+  selector: {app: aiops-web}
+  ports:
+    - {name: http, port: 5173, targetPort: http, nodePort: 30300}
