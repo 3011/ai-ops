@@ -112,6 +112,32 @@ else:
     checks.append((False, "missing scenario: trusted OOMKilled"))
 
 
+sampled_oom_row = find("内存采样")
+if sampled_oom_row:
+    detail = get(f"/incidents/{sampled_oom_row['id']}")
+    trusted = next((item for item in (detail.get("trusted_investigations") or []) if item.get("engine") == "deterministic_oom_v2"), None)
+    findings = (trusted or {}).get("findings") or []
+    tools = (trusted or {}).get("tool_executions") or []
+    types = {item.get("finding_type") for item in findings}
+    memory_tool = next((item for item in tools if item.get("tool_name") == "get_memory_usage_vs_limit"), None)
+    memory_data = (memory_tool or {}).get("structured_output") or {}
+    fact_refs = set(((trusted or {}).get("diagnosis") or {}).get("fact_refs") or [])
+    checks.append((
+        bool(trusted)
+        and trusted.get("status") == "COMPLETED_PARTIAL"
+        and "container_oom_killed" in types
+        and bool(types & {"memory_usage_increased", "memory_near_limit", "memory_limit_reached"})
+        and isinstance(memory_data.get("observed_peak_bytes"), (int, float))
+        and isinstance(memory_data.get("memory_limit_bytes"), (int, float))
+        and isinstance(memory_data.get("peak_limit_ratio"), (int, float))
+        and {item.get("id") for item in findings}.issubset(fact_refs)
+        and bool((memory_tool or {}).get("raw_artifact_hash")),
+        f"sampled OOM memory: findings={sorted(types)} peak={memory_data.get('observed_peak_bytes')} limit={memory_data.get('memory_limit_bytes')} ratio={memory_data.get('peak_limit_ratio')}",
+    ))
+else:
+    checks.append((False, "missing scenario: sampled OOM memory evidence"))
+
+
 cpu_row = find("CPU Spike")
 if cpu_row:
     detail = get(f"/incidents/{cpu_row['id']}")

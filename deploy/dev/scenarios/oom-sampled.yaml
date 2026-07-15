@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-oom-sampled
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-oom-sampled
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-oom-sampled
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-oom-sampled
+        app.kubernetes.io/name: aiops-scenario-oom-sampled
+        aiops_test: "true"
+    spec:
+      containers:
+        - name: memory-eater
+          image: python:3.12-alpine
+          command: ["python", "-c"]
+          args:
+            - |
+              import time
+              data=[]
+              print('building a sampled near-limit memory plateau', flush=True)
+              for i in range(48):
+                  data.append(bytearray(1024*1024))
+                  if i % 4 == 0:
+                      print(f'prefill_mb={len(data)}', flush=True)
+                  time.sleep(0.15)
+              print('holding near memory limit for Prometheus sampling', flush=True)
+              time.sleep(60)
+              print('continuing allocation until kernel OOMKill', flush=True)
+              while True:
+                  data.append(bytearray(1024*1024))
+                  print(f'allocated_mb={len(data)}', flush=True)
+                  time.sleep(0.5)
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-scenario-oom-sampled
+  namespace: aiops-dev
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: aiops-scenario-oom-sampled
+      interval: 15s
+      rules:
+        - alert: AIOpsOOMKilledSampledScenario
+          expr: kube_pod_container_status_last_terminated_reason{namespace="aiops-dev",pod=~"aiops-scenario-oom-sampled-.*",reason="OOMKilled"} == 1
+          for: 15s
+          labels:
+            severity: critical
+            namespace: aiops-dev
+            service: aiops-scenario-oom-sampled
+            environment: development
+            aiops_enabled: "true"
+            aiops_test: "true"
+          annotations:
+            summary: "AIOps OOMKilled 内存采样场景测试"
+            description: "容器在接近内存 limit 处停留一分钟后继续分配并被 OOMKill，用于验证退出前内存峰值。"
