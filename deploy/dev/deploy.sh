@@ -15,6 +15,7 @@ kubectl apply -f "$ROOT/deploy/dev/10-postgresql.yaml"
 kubectl apply -f "$ROOT/deploy/dev/20-backend.yaml"
 kubectl apply -f "$ROOT/deploy/dev/30-frontend.yaml"
 kubectl apply -f "$ROOT/deploy/dev/40-security.yaml"
+kubectl apply -f "$ROOT/deploy/dev/50-alertmanager-config.yaml"
 kubectl rollout status statefulset/postgresql -n "$NS" --timeout=180s
 kubectl rollout status deployment/aiops-api -n "$NS" --timeout=300s
 kubectl rollout status deployment/aiops-worker -n "$NS" --timeout=300s

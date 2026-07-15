@@ -1,0 +1,27 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-integration-test
+  namespace: aiops-dev
+  labels:
+    release: monitoring
+    app.kubernetes.io/name: aiops-console
+    app.kubernetes.io/component: integration-test
+spec:
+  groups:
+    - name: aiops-integration-test
+      interval: 15s
+      rules:
+        - alert: AIOpsIntegrationTest
+          expr: vector(1)
+          for: 0m
+          labels:
+            severity: info
+            namespace: aiops-dev
+            service: aiops-integration-test
+            environment: development
+            cluster: kubernetes
+            aiops_enabled: "true"
+          annotations:
+            summary: "AIOps 控制台真实 Alertmanager 链路测试"
+            description: "该告警由临时 PrometheusRule 产生，用于验证 Prometheus → Alertmanager → AIOps API。"

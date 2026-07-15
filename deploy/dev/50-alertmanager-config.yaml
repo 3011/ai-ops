@@ -1,0 +1,26 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: aiops-console
+  namespace: aiops-dev
+  labels:
+    app.kubernetes.io/name: aiops-console
+    app.kubernetes.io/component: alert-ingest
+spec:
+  route:
+    receiver: aiops-webhook
+    groupBy: [cluster, namespace, service, alertname]
+    groupWait: 5s
+    groupInterval: 1m
+    repeatInterval: 4h
+    matchers:
+      - name: aiops_enabled
+        value: "true"
+        matchType: "="
+  receivers:
+    - name: aiops-webhook
+      webhookConfigs:
+        - url: http://aiops-api.aiops-dev.svc:8000/api/v1/webhooks/alertmanager
+          sendResolved: true
+          maxAlerts: 50
+          timeout: 10s
