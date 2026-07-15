@@ -81,6 +81,31 @@ for fragment, expected_signal, min_score in [
         (ok, f"{fragment}: analysis={analysis.get('status')} coverage={coverage.get('score')}")
     )
 
+oom_row = find("OOMKilled")
+if oom_row:
+    detail = get(f"/incidents/{oom_row['id']}")
+    trusted = (detail.get("trusted_investigations") or [None])[0]
+    target = (trusted or {}).get("target_context") or {}
+    findings = (trusted or {}).get("findings") or []
+    tools = (trusted or {}).get("tool_executions") or []
+    oom_finding = next((item for item in findings if item.get("finding_type") == "container_oom_killed"), None)
+    tool_ids = {item.get("id") for item in tools}
+    checks.append((
+        bool(trusted)
+        and trusted.get("status") in ("COMPLETED", "COMPLETED_PARTIAL")
+        and target.get("resolution_quality") == "high"
+        and bool(target.get("pod_uid"))
+        and bool(target.get("container_name"))
+        and any(item.get("status") == "FOUND" for item in tools)
+        and bool(oom_finding)
+        and oom_finding.get("tool_execution_id") in tool_ids
+        and oom_finding.get("confirmation_rule") == "container_oom_killed_v1",
+        f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)}",
+    ))
+else:
+    checks.append((False, "missing scenario: trusted OOMKilled"))
+
+
 http_row = find("HTTP 5xx")
 if http_row:
     detail = get(f"/incidents/{http_row['id']}")

@@ -501,6 +501,96 @@ function EvidenceCard({ evidence }: { evidence: any }) {
   )
 }
 
+
+function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
+  const run = runs?.[0]
+  if (!run) return <Empty description="当前事件没有 OOMKilled 可信调查记录；第一阶段仅对 OOM 候选事件运行。" />
+  const target = run.target_context || {}
+  const findings = run.findings || []
+  const tools = run.tool_executions || []
+  const oomFindings = findings.filter((item: any) => item.finding_type === 'container_oom_killed')
+  const quality = target.resolution_quality
+  const statusColor = run.status === 'COMPLETED' ? 'green' : run.status === 'COMPLETED_PARTIAL' ? 'gold' : run.status === 'FAILED' ? 'red' : 'blue'
+  return <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Alert
+      type={oomFindings.length ? 'success' : 'warning'}
+      showIcon
+      message={oomFindings.length ? '已确认 OOMKilled 硬事实' : '当前未生成 OOMKilled 确定性事实'}
+      description={oomFindings.length
+        ? oomFindings.map((finding: any) => `容器 ${finding.subject?.container_name || '-'} 于 ${formatTime(finding.event_time)} 因 OOMKilled 终止。`).join('；')
+        : run.diagnosis?.summary || '目标或证据未满足确认规则。'}
+    />
+    <Row gutter={[16, 16]}>
+      <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="调查状态" value={run.status} valueStyle={{ fontSize: 16 }} /></Card></Col>
+      <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="定位质量" value={(quality || 'unknown').toUpperCase()} valueStyle={{ fontSize: 20 }} /></Card></Col>
+      <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="确定性事实" value={findings.length} /></Card></Col>
+      <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="工具执行" value={tools.length} /></Card></Col>
+    </Row>
+    <Card title="目标资源及 UID" extra={<Space><Tag color={statusColor}>{run.status}</Tag><Tag>{run.engine}@{run.engine_version}</Tag></Space>}>
+      {target.pod_uid ? <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
+        <Descriptions.Item label="Cluster">{target.cluster_id || '-'}</Descriptions.Item>
+        <Descriptions.Item label="Namespace">{target.namespace || '-'}</Descriptions.Item>
+        <Descriptions.Item label="Pod">{target.pod_name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="Pod UID"><Typography.Text code copyable>{target.pod_uid || '-'}</Typography.Text></Descriptions.Item>
+        <Descriptions.Item label="Container">{target.container_name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="Workload">{target.workload_kind ? `${target.workload_kind}/${target.workload_name || '-'}` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="Workload UID"><Typography.Text code copyable>{target.workload_uid || '-'}</Typography.Text></Descriptions.Item>
+        <Descriptions.Item label="定位方式">{target.resolution_method || '-'}</Descriptions.Item>
+        <Descriptions.Item label="调查窗口">{formatTime(target.window_start)} ～ {formatTime(target.window_end)}</Descriptions.Item>
+        <Descriptions.Item label="定位说明">{target.resolution_message || '-'}</Descriptions.Item>
+      </Descriptions> : <Alert type="warning" showIcon message={target.resolution_message || '目标定位失败'} description={JSON.stringify(target.resolution_details || {})} />}
+    </Card>
+    <Row gutter={[16, 16]}>
+      <Col xs={24} xl={10}>
+        <Card title="目标定位路径" style={{ height: '100%' }}>
+          {(target.resolution_path || []).length ? <Timeline items={(target.resolution_path || []).map((item: string, index: number) => ({ color: index === 0 ? 'blue' : 'green', children: item }))} /> : <Empty description="没有可用定位路径" />}
+        </Card>
+      </Col>
+      <Col xs={24} xl={14}>
+        <Card title="确定性事实" style={{ height: '100%' }}>
+          {findings.length ? <List dataSource={findings} renderItem={(finding: any) => <List.Item>
+            <List.Item.Meta
+              title={<Space wrap><Tag color="green">{finding.finding_type}</Tag><strong>{finding.finding_type === 'container_oom_killed' ? `容器 ${finding.subject?.container_name} 因 OOMKilled 终止` : finding.finding_type}</strong></Space>}
+              description={<Space direction="vertical" size={3}>
+                <span>发生时间：{formatTime(finding.event_time)}</span>
+                <span>确认来源：Kubernetes ContainerStatus · ToolExecution #{finding.tool_execution_id}</span>
+                <span>规则：{finding.confirmation_rule} · Parser {finding.parser_version} · 质量 {finding.quality}</span>
+              </Space>}
+            />
+          </List.Item>} /> : <Empty description="没有满足确认规则的 Finding" />}
+        </Card>
+      </Col>
+    </Row>
+    <Card title="工具执行审计">
+      <Table rowKey="id" size="small" pagination={false} dataSource={tools} columns={[
+        { title: '顺序', dataIndex: 'sequence_number', width: 70 },
+        { title: '工具', render: (_: unknown, row: any) => <Space direction="vertical" size={1}><strong>{row.tool_name}</strong><Typography.Text type="secondary">v{row.tool_version}</Typography.Text></Space> },
+        { title: '状态', dataIndex: 'status', width: 150, render: (value) => <Tag color={value === 'FOUND' ? 'green' : value === 'UNAVAILABLE' || value === 'TARGET_UNCERTAIN' ? 'orange' : 'default'}>{value}</Tag> },
+        { title: '结果摘要', render: (_: unknown, row: any) => row.result_summary?.summary || '-' },
+        { title: '目标 UID', render: (_: unknown, row: any) => <Typography.Text code>{row.input?.target?.pod_uid || '-'}</Typography.Text> },
+        { title: 'Raw Hash', dataIndex: 'raw_artifact_hash', ellipsis: true, render: (value) => value ? <Typography.Text code copyable>{value}</Typography.Text> : '-' },
+        { title: '耗时', width: 110, render: (_: unknown, row: any) => `${Math.max(0, dayjs(row.completed_at).diff(dayjs(row.started_at)))} ms` },
+        { title: '错误', width: 180, render: (_: unknown, row: any) => row.error_code || '-' },
+      ]} />
+    </Card>
+    {(run.degradation_reasons || []).length > 0 && <Alert
+      type="info"
+      showIcon
+      message="分析降级状态"
+      description={<Space direction="vertical" size={6}><Space wrap>{(run.degradation_reasons || []).map((item: string) => <Tag key={item}>{item}</Tag>)}</Space><span>Agent 调查尚未启用；当前只展示由代码确认的事实和工具审计。</span></Space>}
+    />}
+    {(run.diagnosis?.missing_evidence || []).length > 0 && <Alert type="warning" showIcon message="缺失证据" description={(run.diagnosis.missing_evidence || []).join('；')} />}
+    {runs.length > 1 && <Card title="可信调查历史"><Table rowKey="id" size="small" pagination={{ pageSize: 6 }} dataSource={runs} columns={[
+      { title: 'Run', dataIndex: 'id', width: 80 },
+      { title: '状态', dataIndex: 'status', render: (value) => <Tag>{value}</Tag> },
+      { title: '停止原因', dataIndex: 'stop_reason' },
+      { title: '事实数', render: (_: unknown, row: any) => (row.findings || []).length, width: 90 },
+      { title: '开始', dataIndex: 'started_at', render: formatTime },
+      { title: '完成', dataIndex: 'completed_at', render: formatTime },
+    ]} /></Card>}
+  </Space>
+}
+
 function IncidentDetailPage() {
   const { id } = useParams()
   const { has } = useAuth()
@@ -515,6 +605,8 @@ function IncidentDetailPage() {
   if (query.error) return <Alert type="error" message="详情加载失败" description={apiErrorMessage(query.error)} />
   const data = query.data
   const latestAnalysis = data.analyses?.[0]
+  const trustedInvestigations = data.trusted_investigations || []
+  const latestTrusted = trustedInvestigations[0]
   const latestEvidenceIds = new Set(latestAnalysis?.result?.evidence_refs || [])
   const citedIds = new Set((latestAnalysis?.result?.root_cause_hypotheses || []).flatMap((item: any) => item.evidence_refs || []))
   const latestEvidence = latestEvidenceIds.size ? (data.evidence || []).filter((item: any) => latestEvidenceIds.has(item.id)) : (data.evidence || [])
@@ -531,6 +623,7 @@ function IncidentDetailPage() {
     if (item.ends_at) timelineRows.push({ time: item.ends_at, type: 'alert', title: `${item.alertname} resolved`, detail: '告警恢复', color: 'green' })
   }
   for (const item of data.analyses || []) timelineRows.push({ time: item.finished_at || item.created_at, type: 'analysis', title: `分析 #${item.id} ${item.status}`, detail: item.model || '确定性证据分析', color: 'blue' })
+  for (const item of trustedInvestigations) timelineRows.push({ time: item.completed_at || item.created_at, type: 'trusted', title: `可信调查 #${item.id} ${item.status}`, detail: `${item.engine} · ${(item.findings || []).length} 个确定性事实`, color: (item.findings || []).length ? 'green' : 'gold' })
   timelineRows.sort((a, b) => dayjs(b.time).valueOf() - dayjs(a.time).valueOf())
 
   const overview = <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -552,6 +645,7 @@ function IncidentDetailPage() {
         <Descriptions.Item label="来源"><OriginTags item={data} /></Descriptions.Item>
       </Descriptions>
     </Card>
+    {latestTrusted && <Card title="可信调查摘要" extra={<Tag color={(latestTrusted.findings || []).length ? 'green' : 'gold'}>{latestTrusted.status}</Tag>}><Alert type={(latestTrusted.findings || []).length ? 'success' : 'warning'} showIcon message={latestTrusted.diagnosis?.summary || '可信调查已完成'} description={`目标定位质量：${latestTrusted.target_context?.resolution_quality || 'unknown'}；确定性事实：${(latestTrusted.findings || []).length}；工具执行：${(latestTrusted.tool_executions || []).length}`} /></Card>}
     <Card title="AI 诊断"><AnalysisCard analysis={latestAnalysis} /></Card>
   </Space>
 
@@ -585,7 +679,8 @@ function IncidentDetailPage() {
       <div><Space wrap><OriginTags item={data} /><StatusTag value={data.severity} /><StatusTag value={data.status} /></Space><Typography.Title level={2}>{data.title}</Typography.Title><Typography.Text type="secondary">事件 #{data.id} · {data.labels?.cluster || '-'} / {data.labels?.namespace || '-'} / {data.labels?.service || '-'}</Typography.Text></div>
       <Button type="primary" size="large" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button>
     </div>
-    <Tabs className="incident-tabs" defaultActiveKey="overview" items={[
+    <Tabs className="incident-tabs" defaultActiveKey={latestTrusted ? 'trusted' : 'overview'} items={[
+      { key: 'trusted', label: `可信调查 (${trustedInvestigations.length})`, children: <TrustedInvestigationPanel runs={trustedInvestigations} /> },
       { key: 'overview', label: '诊断概览', children: overview },
       { key: 'timeline', label: <Space><HistoryOutlined />变更时间线</Space>, children: timeline },
       { key: 'evidence', label: `全部证据 (${visibleEvidence.length})`, children: evidencePanel },

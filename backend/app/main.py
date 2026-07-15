@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.db import SessionLocal, get_session, init_database
 from app.auth import principal_from_request, record_audit, seed_auth_and_release
 from app.governance import router as governance_router
+from app.investigation.repositories import investigation_payloads
 from app.model_config import (
     encrypt_api_key,
     normalize_base_url,
@@ -1150,6 +1151,7 @@ async def incident_detail(
     if scope_service:
         change_filters.append(ChangeEvent.service == scope_service)
     changes = (await session.scalars(select(ChangeEvent).where(*change_filters).order_by(ChangeEvent.occurred_at.desc()).limit(100))).all()
+    trusted_investigations = await investigation_payloads(session, incident_id)
     detail_origin = classify_origin(title=incident.title, labels=incident.labels)
     if alerts:
         alert_origins = [
@@ -1177,6 +1179,7 @@ async def incident_detail(
         "resolved_at": incident.resolved_at,
         **detail_origin,
         "change_events": [change_event_payload(row) for row in changes],
+        "trusted_investigations": trusted_investigations,
         "alerts": [
             {
                 "id": alert.id,

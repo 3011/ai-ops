@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str | None = None
     session_hours: int = 8
     cookie_secure: bool = False
-    app_version: str = "0.7.0"
-    app_release_title: str = "平台治理与总览体验升级"
-    app_release_summary: str = "新增用户、角色、权限、审计和版本说明，并重新设计运维总览。"
+    app_version: str = "0.8.0"
+    app_release_title: str = "OOMKilled 可信调查闭环"
+    app_release_summary: str = "新增不依赖模型的 OOMKilled 确定性调查、工具审计、UID 固定和规则化诊断。"
     app_release_changes: str = "[]"
     git_commit: str = ""
 

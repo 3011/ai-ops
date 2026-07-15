@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.7.0`
+- 当前 API：`0.8.0`
 
 ## 核心链路
 
@@ -42,6 +42,29 @@ Prometheus → Alertmanager → FastAPI webhook
 - 事件详情按诊断概览、变更时间线、全部证据、关联与历史四个标签页组织；
 - 前端 vendor chunk 拆分，React、Ant Design 和数据层独立缓存；
 - 生产视图默认隐藏 `aiops_test=true` 测试数据，可通过页面开关查看。
+
+
+## OOMKilled 可信调查（0.8.0）
+
+第一阶段新增独立于模型的可信调查链路：
+
+```text
+Incident → TargetContext Resolver → get_container_termination_status
+→ ToolExecution → DeterministicFinding → container_oom_killed_v1
+→ DiagnosisResult
+```
+
+关键约束：
+
+- TargetContext 固定 namespace、Pod name、Pod UID 和 Container；
+- Kubernetes 查询返回的 UID 必须再次匹配 TargetContext；
+- 只有 high 定位质量、OOMKilled termination reason 且终止时间在调查窗口内，才生成 `container_oom_killed` Finding；
+- `UNAVAILABLE`、`TARGET_UNCERTAIN` 和 `NOT_FOUND` 不会生成否定或确认 Finding；
+- Finding 必须关联 ToolExecution，工具保存结构化结果、模型可见摘要、原始结果 Hash、状态和错误语义；
+- Agent 尚未启用，成功确认后状态仍为 `COMPLETED_PARTIAL`，降级原因是 `AGENT_NOT_ENABLED`；
+- 事件详情新增“可信调查”页，显示目标 UID、定位路径、确定性事实、工具审计和降级状态。
+
+现有 DeepSeek 分析仍并行保留，但不参与上述 OOMKilled 硬事实确认。
 
 ## “无需告警模板”的边界
 

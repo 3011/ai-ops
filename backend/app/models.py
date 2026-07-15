@@ -238,3 +238,85 @@ class ReleaseNote(Base):
     released_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(128), nullable=False, default="system")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestigationAnalysisRun(Base):
+    __tablename__ = "investigation_analysis_runs"
+    __table_args__ = (Index("ix_investigation_runs_incident_created", "incident_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    stop_reason: Mapped[str | None] = mapped_column(String(64))
+    degradation_reasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    target_context_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    engine: Mapped[str] = mapped_column(String(64), nullable=False, default="deterministic_oom_v1")
+    engine_version: Mapped[str] = mapped_column(String(64), nullable=False, default="1")
+    input_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestigationToolExecution(Base):
+    __tablename__ = "investigation_tool_executions"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "sequence_number", name="uq_investigation_tool_sequence"),
+        Index("ix_investigation_tool_run", "analysis_run_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    analysis_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    tool_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalized_input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    structured_output_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    model_visible_output_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    raw_output_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB)
+    raw_artifact_uri: Mapped[str | None] = mapped_column(String(1000))
+    raw_artifact_hash: Mapped[str | None] = mapped_column(String(64))
+    cost_units: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reused_execution_id: Mapped[int | None] = mapped_column(ForeignKey("investigation_tool_executions.id", ondelete="SET NULL"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestigationFinding(Base):
+    __tablename__ = "investigation_findings"
+    __table_args__ = (Index("ix_investigation_findings_run", "analysis_run_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    analysis_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    tool_execution_id: Mapped[int] = mapped_column(ForeignKey("investigation_tool_executions.id", ondelete="CASCADE"), nullable=False, index=True)
+    finding_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    subject_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    value_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    polarity: Mapped[str] = mapped_column(String(16), nullable=False)
+    quality: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    parser_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmation_rule: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestigationDiagnosisResult(Base):
+    __tablename__ = "investigation_diagnosis_results"
+
+    analysis_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), primary_key=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    fact_refs_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    hypotheses_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    missing_evidence_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    recommended_checks_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    risk_notes_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    degradation_reasons_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    validated_output_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

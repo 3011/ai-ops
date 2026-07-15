@@ -35,9 +35,9 @@ data:
   DYNAMIC_PLANNER_MAX_LOKI_QUERIES: "2"
   CHANGE_LOOKBACK_MINUTES: "120"
   TRACE_QUERY_LIMIT: "20"
-  APP_VERSION: "0.7.0"
-  APP_RELEASE_TITLE: "平台治理与总览体验升级"
-  APP_RELEASE_SUMMARY: "新增用户、角色、权限、审计和版本说明，并重新设计运维总览。"
-  APP_RELEASE_CHANGES: '["运维总览卡片重新分组与响应式优化","HttpOnly 会话登录和首次密码修改","用户、角色和细粒度权限管理","关键管理操作审计日志","版本说明与历史里程碑记录"]'
+  APP_VERSION: "0.8.0"
+  APP_RELEASE_TITLE: "OOMKilled 可信调查闭环"
+  APP_RELEASE_SUMMARY: "新增不依赖模型的 OOMKilled 确定性调查、工具审计、UID 固定和规则化诊断。"
+  APP_RELEASE_CHANGES: '["TargetContext 固定 Pod UID 与 Container","get_container_termination_status 只读工具","ToolExecution 与原始结果 Hash 审计","container_oom_killed_v1 确定性 Finding","模型关闭时仍生成 COMPLETED_PARTIAL 诊断","事件详情可信调查页面"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

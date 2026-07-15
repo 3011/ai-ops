@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0 - OOMKilled 可信调查闭环
+
+- 新增框架无关的 TargetContext、ToolResult、DeterministicFinding 契约和枚举；
+- 新增四张可信调查表，保留旧分析表与链路；
+- Target Resolver 优先使用告警 Pod UID，并沿 ownerReferences 定位 ReplicaSet/Deployment；
+- 新增只读工具 `get_container_termination_status` 和 ToolExecution 审计；
+- 新增 `container_oom_killed_v1` 代码确认规则，不依赖模型；
+- 模型关闭时仍可生成 OOMKilled 确定性事实和 `COMPLETED_PARTIAL` DiagnosisResult；
+- 事件详情新增可信调查、目标 UID、定位路径、工具状态和降级展示；
+- 新增 UID 防混淆、歧义定位、数据源失败、Finding 规则和 PostgreSQL 持久化测试。
+
 所有重要平台变更都记录在此文件，并同步到控制台“版本说明”。
 
 ## 0.7.0 - 2026-07-15

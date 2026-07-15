@@ -16,6 +16,7 @@ from sqlalchemy import select, update
 from app.config import get_settings
 from app.db import SessionLocal, init_database
 from app.model_config import load_runtime_model_config
+from app.investigation.service import run_oom_investigation
 from app.models import (
     AlertInstance,
     AnalysisRun,
@@ -1353,6 +1354,13 @@ async def process(job_id: int) -> None:
         if job.job_type != "analyze_incident":
             raise ValueError(f"unsupported job type: {job.job_type}")
         incident_id = int(job.payload["incident_id"])
+
+    try:
+        trusted_run_id = await run_oom_investigation(incident_id)
+        if trusted_run_id is not None:
+            logger.info("trusted OOM investigation completed run=%s incident=%s", trusted_run_id, incident_id)
+    except Exception as exc:  # trusted investigation must not block the legacy path
+        logger.exception("trusted OOM investigation failed incident=%s: %s", incident_id, exc)
 
     incident, alerts, collected, coverage = await collect_evidence(incident_id)
     dynamic_evidence, dynamic_plan = await execute_dynamic_plan(incident, alerts, collected)
