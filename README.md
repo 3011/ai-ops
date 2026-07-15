@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.6.0`
+- 当前 API：`0.7.0`
 
 ## 核心链路
 
@@ -55,6 +55,29 @@ Prometheus → Alertmanager → FastAPI webhook
 6. LLM 最终假设与人工确认。
 
 这能覆盖大量 Kubernetes、Node、容器和具备指标/日志的应用故障，但不能保证任何故障都得到唯一根因。缺少业务指标、外部托管服务数据、变更记录、Trace 或领域语义时，平台会降低覆盖度并明确列出缺口，而不是虚构结论。
+
+
+## 登录与权限
+
+首次部署会创建 `admin` 管理员，随机初始密码只保存在 Kubernetes Secret：
+
+```bash
+ssh k8s 'kubectl get secret aiops-secrets -n aiops-dev -o jsonpath="{.data.BOOTSTRAP_ADMIN_PASSWORD}" | base64 -d; echo'
+```
+
+首次登录必须修改密码。默认角色：
+
+- `admin`：全部权限；
+- `operator`：查看与分析事件、查看变更、配置只读和版本查看；
+- `viewer`：只读查看总览、事件、变更和版本。
+
+用户、角色、权限和审计位于前端 `平台治理 → 用户与权限`。后端对每个 API 权限做强制校验，前端菜单隐藏不是安全边界。
+
+## 版本记录
+
+版本说明位于 `平台治理 → 版本说明`。系统启动时会自动登记当前版本，并补录 0.1～0.6 的历史里程碑。管理员也可以在页面新增版本记录。
+
+代码仓库同时维护 `CHANGELOG.md`。每次发布至少记录：版本号、标题、Git Commit、发布时间和变更项。
 
 ## 模型设置
 
@@ -117,4 +140,4 @@ kubectl logs -n aiops-dev deployment/aiops-web -f
 - 动态查询有数量、长度、复杂度和作用域限制；
 - 日志脱敏，告警和日志被视为不可信输入；
 - 不执行自动修复、删除、重启、扩缩容或配置变更；
-- 正式开放前仍需补充登录、RBAC、审计和管理员权限控制。
+- 登录、RBAC 和审计已启用；正式公网开放前仍需补充 HTTPS、CSRF Token、SSO/OIDC 和更严格的会话策略。

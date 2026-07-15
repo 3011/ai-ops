@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, make_asgi_app
 from sqlalchemy import and_, func, or_, select
@@ -16,7 +17,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db import get_session, init_database
+from app.db import SessionLocal, get_session, init_database
+from app.auth import principal_from_request, record_audit, seed_auth_and_release
+from app.governance import router as governance_router
 from app.model_config import (
     encrypt_api_key,
     normalize_base_url,
@@ -34,6 +37,8 @@ from app.models import (
     OutboxJob,
     TraceSettings,
     WebhookDelivery,
+    ReleaseNote,
+    User,
 )
 
 settings = get_settings()
@@ -285,11 +290,64 @@ async def probe_http(name: str, url: str) -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_database()
+    async with SessionLocal() as session:
+        await seed_auth_and_release(session)
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
 app.mount("/metrics", make_asgi_app())
+
+PUBLIC_API_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/webhooks/alertmanager",
+    "/api/v1/webhooks/deployment-events",
+}
+
+
+def route_permission(method: str, path: str) -> str | None:
+    if path.startswith("/api/v1/auth/"):
+        return None
+    if path.startswith("/api/v1/dashboard"):
+        return "dashboard.view"
+    if path.startswith("/api/v1/incidents"):
+        return "incidents.analyze" if method != "GET" else "incidents.view"
+    if path.startswith(("/api/v1/alerts", "/api/v1/webhook-deliveries", "/api/v1/analysis-jobs")):
+        return "incidents.view"
+    if path.startswith("/api/v1/change-events"):
+        return "changes.view"
+    if path.startswith("/api/v1/settings"):
+        return "settings.view" if method == "GET" else "settings.manage"
+    if path.startswith(("/api/v1/users", "/api/v1/roles", "/api/v1/permissions")):
+        return "users.view" if method == "GET" else "users.manage"
+    if path.startswith("/api/v1/audit-logs"):
+        return "audit.view"
+    if path.startswith("/api/v1/releases"):
+        return "versions.view" if method == "GET" else "versions.manage"
+    return "dashboard.view"
+
+
+@app.middleware("http")
+async def authentication_middleware(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/v1/") or path in PUBLIC_API_PATHS:
+        return await call_next(request)
+    async with SessionLocal() as session:
+        principal = await principal_from_request(request, session)
+    if principal is None:
+        return JSONResponse({"detail": "未登录或会话已失效"}, status_code=401)
+    request.state.principal = principal
+    if principal.must_change_password and path not in {
+        "/api/v1/auth/me", "/api/v1/auth/logout", "/api/v1/auth/change-password"
+    }:
+        return JSONResponse({"detail": "首次登录必须先修改密码"}, status_code=428)
+    permission = route_permission(request.method, path)
+    if permission and permission not in principal.permissions:
+        return JSONResponse({"detail": f"缺少权限：{permission}"}, status_code=403)
+    return await call_next(request)
+
+
+app.include_router(governance_router)
 
 
 @app.get("/healthz")
@@ -359,6 +417,7 @@ async def get_model_settings(
 @app.put("/api/v1/settings/model")
 async def update_model_settings(
     payload: ModelSettingsUpdate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     try:
@@ -394,6 +453,15 @@ async def update_model_settings(
         except RuntimeError as exc:
             raise HTTPException(503, str(exc)) from exc
 
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="model_settings_updated",
+        resource_type="settings",
+        resource_id="model",
+        details={"provider": row.provider, "base_url": row.base_url, "model": row.model, "enabled": row.enabled, "api_key_changed": bool(payload.api_key or payload.clear_api_key)},
+        request=request,
+    )
     await session.commit()
     await session.refresh(row)
     return public_model_settings(row)
@@ -576,6 +644,7 @@ async def get_trace_settings(session: AsyncSession = Depends(get_session)) -> di
 @app.put("/api/v1/settings/traces")
 async def update_trace_settings(
     payload: TraceSettingsUpdate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     provider = payload.provider.strip().lower()
@@ -593,6 +662,15 @@ async def update_trace_settings(
         row.base_url = base_url or None
         row.enabled = payload.enabled
         row.service_tag = payload.service_tag.strip() or "service.name"
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="trace_settings_updated",
+        resource_type="settings",
+        resource_id="traces",
+        details={"provider": row.provider, "base_url": row.base_url, "enabled": row.enabled, "service_tag": row.service_tag},
+        request=request,
+    )
     await session.commit()
     await session.refresh(row)
     return trace_settings_payload(row)
@@ -870,6 +948,8 @@ async def dashboard_summary(
         "message": model_public.get("last_test_message") or "尚未完成连接测试",
     })
     analysis_success = sum(1 for row in analyses if row.status == "succeeded")
+    users = (await session.scalars(select(User))).all()
+    latest_release = await session.scalar(select(ReleaseNote).where(ReleaseNote.is_current.is_(True)).order_by(ReleaseNote.released_at.desc()))
     return {
         "open_incidents": sum(1 for row in incidents if row.status == "open"),
         "critical_open": sum(1 for row in incidents if row.status == "open" and row.severity == "critical"),
@@ -881,6 +961,14 @@ async def dashboard_summary(
         "failed_jobs": sum(1 for row in jobs if row.status == "dead"),
         "changes_24h": len(changes),
         "hidden_test_change_count": 0 if include_test else sum(1 for row in all_changes if row.is_test),
+        "users_total": len(users),
+        "users_active": sum(1 for row in users if row.is_active),
+        "current_release": ({
+            "version": latest_release.version,
+            "title": latest_release.title,
+            "released_at": latest_release.released_at,
+            "commit_sha": latest_release.commit_sha,
+        } if latest_release else None),
         "recent_incidents": [incident_payload(row) for row in recent],
         "hidden_test_count": 0 if include_test else test_count,
         "include_test": include_test,
@@ -1145,6 +1233,7 @@ async def incident_detail(
 @app.post("/api/v1/incidents/{incident_id}/reanalyze", status_code=202)
 async def reanalyze_incident(
     incident_id: int,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     incident = await session.get(Incident, incident_id)
@@ -1158,5 +1247,15 @@ async def reanalyze_incident(
         max_attempts=settings.worker_max_attempts,
     )
     session.add(job)
+    await session.flush()
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="incident_reanalysis_requested",
+        resource_type="incident",
+        resource_id=str(incident_id),
+        details={"job_id": job.id},
+        request=request,
+    )
     await session.commit()
     return {"accepted": True, "job_id": job.id, "incident_id": incident_id}

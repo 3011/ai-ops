@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     release_webhook_token: str | None = None
     change_lookback_minutes: int = 120
     trace_query_limit: int = 20
+    auth_session_secret: str | None = None
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str | None = None
+    session_hours: int = 8
+    cookie_secure: bool = False
+    app_version: str = "0.7.0"
+    app_release_title: str = "平台治理与总览体验升级"
+    app_release_summary: str = "新增用户、角色、权限、审计和版本说明，并重新设计运维总览。"
+    app_release_changes: str = "[]"
+    git_commit: str = ""
 
 
 @lru_cache

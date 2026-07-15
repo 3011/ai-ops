@@ -1,14 +1,45 @@
 from __future__ import annotations
+import base64
+import http.cookiejar
 import json
+import os
+import subprocess
 import sys
-from urllib.request import urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 API = "http://127.0.0.1:30801/api/v1"
+COOKIE_JAR = http.cookiejar.CookieJar()
+OPENER = build_opener(HTTPCookieProcessor(COOKIE_JAR))
+
+
+def bootstrap_login() -> None:
+    username = os.getenv("AIOPS_TEST_USERNAME", "admin")
+    password = os.getenv("AIOPS_TEST_PASSWORD")
+    if not password:
+        encoded = subprocess.check_output([
+            "kubectl", "get", "secret", "aiops-secrets", "-n", "aiops-dev",
+            "-o", "jsonpath={.data.BOOTSTRAP_ADMIN_PASSWORD}",
+        ], text=True).strip()
+        password = base64.b64decode(encoded).decode()
+    request = Request(
+        API + "/auth/login",
+        data=json.dumps({"username": username, "password": password}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with OPENER.open(request, timeout=20) as response:
+        payload = json.load(response)
+    if payload.get("user", {}).get("must_change_password"):
+        print("SKIP scenario validation: bootstrap admin must change password through UI first")
+        sys.exit(0)
 
 
 def get(path: str) -> dict:
-    with urlopen(API + path, timeout=20) as response:
+    with OPENER.open(API + path, timeout=20) as response:
         return json.load(response)
+
+
+bootstrap_login()
 
 
 incidents = get("/incidents?include_test=true&limit=500")["items"]

@@ -35,3 +35,9 @@ data:
   DYNAMIC_PLANNER_MAX_LOKI_QUERIES: "2"
   CHANGE_LOOKBACK_MINUTES: "120"
   TRACE_QUERY_LIMIT: "20"
+  APP_VERSION: "0.7.0"
+  APP_RELEASE_TITLE: "平台治理与总览体验升级"
+  APP_RELEASE_SUMMARY: "新增用户、角色、权限、审计和版本说明，并重新设计运维总览。"
+  APP_RELEASE_CHANGES: '["运维总览卡片重新分组与响应式优化","HttpOnly 会话登录和首次密码修改","用户、角色和细粒度权限管理","关键管理操作审计日志","版本说明与历史里程碑记录"]'
+  SESSION_HOURS: "8"
+  COOKIE_SECURE: "false"

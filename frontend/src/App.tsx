@@ -10,7 +10,13 @@ import {
   DashboardOutlined,
   DeploymentUnitOutlined,
   HistoryOutlined,
+  LockOutlined,
+  LogoutOutlined,
+  ReadOutlined,
   ReloadOutlined,
+  SafetyCertificateOutlined,
+  TeamOutlined,
+  UserOutlined,
   RocketOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -19,17 +25,20 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
+  Avatar,
   Button,
   Card,
   Col,
   Collapse,
   Descriptions,
+  Dropdown,
   Empty,
   Form,
   Input,
   Layout,
   List,
   Menu,
+  Modal,
   Progress,
   Row,
   Select,
@@ -48,8 +57,9 @@ import dayjs from 'dayjs'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import './styles.css'
-
-const api = axios.create({ baseURL: '/api/v1', timeout: 15000 })
+import { api } from './client'
+import { AuthProvider, PermissionRoute, useAuth } from './auth'
+import { AccessManagementPage, ReleasesPage } from './GovernancePages'
 
 const colors: Record<string, string> = {
   critical: 'red',
@@ -180,6 +190,7 @@ function MetricChart({ evidence }: { evidence: any }) {
 
 function DashboardPage() {
   const navigate = useNavigate()
+  const { user, has } = useAuth()
   const [includeTest, setIncludeTest] = useTestDataVisibility()
   const summary = useQuery({
     queryKey: ['dashboard-summary', includeTest],
@@ -192,79 +203,95 @@ function DashboardPage() {
     refetchInterval: 60000,
   })
   const data = summary.data || {}
+  const release = data.current_release
   return (
     <Space direction="vertical" size={18} style={{ width: '100%' }}>
-      <PageHeader
-        title="运维总览"
-        subtitle="集中查看事件压力、AI 分析效果、任务积压和关键数据源状态。"
-        actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => { summary.refetch(); trend.refetch() }}>刷新</Button></>}
-      />
-      {!includeTest && data.hidden_test_count > 0 && <Alert type="info" showIcon message={`生产视图已隐藏 ${data.hidden_test_count} 条测试事件`} description="打开右上角“测试数据”开关可查看自动化测试产生的事件，不会计入当前统计。" />}
+      <div className="dashboard-hero">
+        <div>
+          <Typography.Text className="dashboard-kicker">OPERATIONS OVERVIEW</Typography.Text>
+          <Typography.Title level={2}>你好，{user.display_name}</Typography.Title>
+          <Typography.Paragraph>从事件压力、AI 分析质量、任务队列和发布变更四个维度掌握平台状态。</Typography.Paragraph>
+        </div>
+        <Space wrap>
+          {release && <Button icon={<ReadOutlined />} onClick={() => navigate('/releases')}>v{release.version} · {release.title}</Button>}
+          <TestDataToggle checked={includeTest} onChange={setIncludeTest} />
+          <Button icon={<ReloadOutlined />} onClick={() => { summary.refetch(); trend.refetch() }}>刷新</Button>
+        </Space>
+      </div>
+
+      {!includeTest && (data.hidden_test_count > 0 || data.hidden_test_change_count > 0) && <Alert type="info" showIcon message="当前为生产视图" description={`已隐藏 ${data.hidden_test_count || 0} 条测试事件和 ${data.hidden_test_change_count || 0} 条测试变更。`} />}
       {summary.error && <Alert type="error" showIcon message="总览加载失败" description={apiErrorMessage(summary.error)} />}
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}><Card className="stat-card stat-red"><Statistic title="未恢复事件" value={data.open_incidents || 0} prefix={<AlertOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card className="stat-card stat-orange"><Statistic title="Critical / Warning" value={`${data.critical_open || 0} / ${data.warning_open || 0}`} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card className="stat-card stat-blue"><Statistic title="近 24 小时事件" value={data.incidents_24h || 0} prefix={<BarChartOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card className="stat-card stat-green"><Statistic title="AI 分析成功率" value={data.analysis_success_rate || 0} suffix="%" prefix={<ThunderboltOutlined />} /></Card></Col>
+
+      <Row gutter={[16, 16]} className="overview-grid">
+        <Col xs={24} md={12} xl={6}>
+          <Card className="overview-card pressure-card" bordered={false}>
+            <div className="overview-card-head"><div className="overview-icon"><AlertOutlined /></div><Typography.Text>事件压力</Typography.Text></div>
+            <div className="overview-main-value">{data.open_incidents || 0}</div>
+            <Typography.Text type="secondary">当前未恢复事件</Typography.Text>
+            <div className="overview-split"><span><b>{data.critical_open || 0}</b> Critical</span><span><b>{data.warning_open || 0}</b> Warning</span><span><b>{data.incidents_24h || 0}</b> 24h</span></div>
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="overview-card ai-card" bordered={false}>
+            <div className="overview-card-head"><div className="overview-icon"><ThunderboltOutlined /></div><Typography.Text>AI 分析质量</Typography.Text></div>
+            <div className="overview-main-value">{data.analysis_success_rate || 0}<small>%</small></div>
+            <Typography.Text type="secondary">分析成功率</Typography.Text>
+            <Progress percent={data.analysis_success_rate || 0} showInfo={false} strokeColor="#7c3aed" />
+            <div className="overview-foot">累计分析 {data.analysis_total || 0} 次 · {data.model?.model || '未配置模型'}</div>
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="overview-card queue-card" bordered={false}>
+            <div className="overview-card-head"><div className="overview-icon"><HistoryOutlined /></div><Typography.Text>任务队列</Typography.Text></div>
+            <div className="overview-main-value">{data.pending_jobs || 0}</div>
+            <Typography.Text type="secondary">等待或处理中</Typography.Text>
+            <div className="overview-split"><span><b>{data.pending_jobs || 0}</b> Pending</span><span className={data.failed_jobs ? 'danger-text' : ''}><b>{data.failed_jobs || 0}</b> Dead</span></div>
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="overview-card release-card" bordered={false}>
+            <div className="overview-card-head"><div className="overview-icon"><RocketOutlined /></div><Typography.Text>发布与变更</Typography.Text></div>
+            <div className="overview-main-value">{data.changes_24h || 0}</div>
+            <Typography.Text type="secondary">近 24 小时生产变更</Typography.Text>
+            <div className="overview-foot">当前版本 {release ? `v${release.version}` : '-'}{release?.commit_sha ? ` · ${release.commit_sha}` : ''}</div>
+          </Card>
+        </Col>
       </Row>
+
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={16}>
-          <Card title="24 小时事件趋势" extra={<Space><Tag color="red">Critical</Tag><Tag color="orange">Warning</Tag><Tag color="blue">Info</Tag></Space>} loading={trend.isLoading}>
+          <Card className="dashboard-panel" title="24 小时事件趋势" extra={<Space><Tag color="red">Critical</Tag><Tag color="orange">Warning</Tag><Tag color="blue">Info</Tag></Space>} loading={trend.isLoading}>
             <TrendBars buckets={trend.data?.buckets || []} />
           </Card>
         </Col>
         <Col xs={24} xl={8}>
-          <Card title="运行状态">
-            <Row gutter={[12, 12]}>
-              <Col span={12}><Statistic title="待处理任务" value={data.pending_jobs || 0} /></Col>
-              <Col span={12}><Statistic title="死信任务" value={data.failed_jobs || 0} valueStyle={{ color: data.failed_jobs ? '#cf1322' : undefined }} /></Col>
-              <Col span={12}><Statistic title="分析总数" value={data.analysis_total || 0} /></Col>
-              <Col span={12}><Statistic title="24h 变更" value={data.changes_24h || 0} prefix={<RocketOutlined />} /></Col>
-              <Col span={24}><Statistic title="当前模型" value={data.model?.model || '-'} valueStyle={{ fontSize: 15 }} /></Col>
-            </Row>
-          </Card>
-          <Card title="高频服务" className="spaced-card">
-            <List
-              size="small"
-              dataSource={trend.data?.top_services || []}
-              locale={{ emptyText: '暂无事件数据' }}
-              renderItem={(item: any, index) => <List.Item><Space><Tag>{index + 1}</Tag><Typography.Text>{item.service}</Typography.Text></Space><strong>{item.count}</strong></List.Item>}
-            />
+          <Card className="dashboard-panel health-panel" title="数据源健康">
+            <div className="health-grid">{(data.data_sources || []).map((item: any) => <div className={`health-tile health-${item.status}`} key={item.name}><div><strong>{item.name}</strong><StatusTag value={item.status} /></div><Typography.Text type="secondary">{item.message}</Typography.Text><span>{item.latency_ms == null ? '-' : `${item.latency_ms} ms`}</span></div>)}</div>
           </Card>
         </Col>
       </Row>
+
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={10}>
-          <Card title="数据源健康">
-            <List
-              dataSource={data.data_sources || []}
-              loading={summary.isLoading}
-              renderItem={(item: any) => (
-                <List.Item>
-                  <List.Item.Meta title={<Space><StatusTag value={item.status} /><strong>{item.name}</strong></Space>} description={item.message} />
-                  <Typography.Text type="secondary">{item.latency_ms == null ? '-' : `${item.latency_ms} ms`}</Typography.Text>
-                </List.Item>
-              )}
-            />
+        <Col xs={24} xl={16}>
+          <Card className="dashboard-panel" title="最近事件" extra={<Link to="/incidents">查看全部</Link>}>
+            <Table rowKey="id" size="small" pagination={false} dataSource={data.recent_incidents || []} onRow={(row: any) => ({ onClick: () => navigate(`/incidents/${row.id}`), style: { cursor: 'pointer' } })} columns={[
+              { title: '事件', dataIndex: 'title', ellipsis: true },
+              { title: '来源', width: 200, render: (_: unknown, row: any) => <OriginTags item={row} /> },
+              { title: '级别', dataIndex: 'severity', width: 90, render: (value) => <StatusTag value={value} /> },
+              { title: '状态', dataIndex: 'status', width: 90, render: (value) => <StatusTag value={value} /> },
+              { title: '最后发生', dataIndex: 'last_seen_at', width: 160, render: formatTime },
+            ]} />
           </Card>
         </Col>
-        <Col xs={24} xl={14}>
-          <Card title="最近事件" extra={<Link to="/incidents">查看全部</Link>}>
-            <Table
-              rowKey="id"
-              size="small"
-              pagination={false}
-              dataSource={data.recent_incidents || []}
-              onRow={(row: any) => ({ onClick: () => navigate(`/incidents/${row.id}`), style: { cursor: 'pointer' } })}
-              columns={[
-                { title: '事件', dataIndex: 'title', ellipsis: true },
-                { title: '来源', width: 210, render: (_: unknown, row: any) => <OriginTags item={row} /> },
-                { title: '级别', dataIndex: 'severity', width: 90, render: (value) => <StatusTag value={value} /> },
-                { title: '状态', dataIndex: 'status', width: 90, render: (value) => <StatusTag value={value} /> },
-                { title: '最后发生', dataIndex: 'last_seen_at', width: 160, render: formatTime },
-              ]}
-            />
-          </Card>
+        <Col xs={24} xl={8}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            {has('users.view') && <Card className="dashboard-panel compact-panel" title="访问治理" extra={<Link to="/access">用户与权限</Link>}>
+              <Row gutter={12}><Col span={12}><Statistic title="启用用户" value={data.users_active || 0} prefix={<UserOutlined />} /></Col><Col span={12}><Statistic title="用户总数" value={data.users_total || 0} prefix={<TeamOutlined />} /></Col></Row>
+            </Card>}
+            <Card className="dashboard-panel compact-panel" title="高频服务">
+              <List size="small" dataSource={trend.data?.top_services || []} locale={{ emptyText: '暂无事件数据' }} renderItem={(item: any, index) => <List.Item><Space><Tag>{index + 1}</Tag><Typography.Text>{item.service}</Typography.Text></Space><strong>{item.count}</strong></List.Item>} />
+            </Card>
+          </Space>
         </Col>
       </Row>
     </Space>
@@ -476,6 +503,7 @@ function EvidenceCard({ evidence }: { evidence: any }) {
 
 function IncidentDetailPage() {
   const { id } = useParams()
+  const { has } = useAuth()
   const client = useQueryClient()
   const query = useQuery({ queryKey: ['incident', id], queryFn: async () => (await api.get(`/incidents/${id}`)).data, enabled: Boolean(id), refetchInterval: 5000 })
   const reanalyze = useMutation({
@@ -738,16 +766,26 @@ function ModelSettingsPage() {
           </Card>
         </Col>
       </Row>
-      <Alert type="warning" showIcon message="安全提示" description="设置接口仍仅适用于内网开发环境。正式开放前需要增加登录、RBAC 和审计日志。" />
+      <Alert type="info" showIcon message="权限保护已启用" description="模型配置修改需要 settings.manage 权限，并会写入审计日志；API Key 不会在页面回显。" />
     </Space>
   )
 }
 
 function AppLayout() {
   const location = useLocation()
+  const { user, has, logout, refresh } = useAuth()
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [passwordForm] = Form.useForm()
+  const changePassword = useMutation({
+    mutationFn: async (values: any) => (await api.post('/auth/change-password', { current_password: values.current_password, new_password: values.new_password })).data,
+    onSuccess: async () => { message.success('密码修改成功'); setPasswordOpen(false); passwordForm.resetFields(); await refresh() },
+    onError: (error) => message.error(apiErrorMessage(error)),
+  })
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith('/settings/integrations')) return 'settings-integrations'
     if (location.pathname.startsWith('/settings')) return 'settings-model'
+    if (location.pathname.startsWith('/access')) return 'access'
+    if (location.pathname.startsWith('/releases')) return 'releases'
     if (location.pathname.startsWith('/changes')) return 'changes'
     if (location.pathname.startsWith('/deliveries')) return 'deliveries'
     if (location.pathname.startsWith('/jobs')) return 'jobs'
@@ -755,23 +793,40 @@ function AppLayout() {
     if (location.pathname.startsWith('/incidents')) return 'incidents'
     return 'dashboard'
   }, [location.pathname])
+
+  const menuItems = [
+    { key: 'dashboard', icon: <DashboardOutlined />, label: <Link to="/dashboard">运维总览</Link> },
+    has('incidents.view') ? { key: 'incidents', icon: <AlertOutlined />, label: <Link to="/incidents">事件中心</Link> } : null,
+    has('incidents.view') ? { key: 'alerts', icon: <BellOutlined />, label: <Link to="/alerts">原始告警</Link> } : null,
+    has('changes.view') ? { key: 'changes', icon: <BranchesOutlined />, label: <Link to="/changes">变更记录</Link> } : null,
+    has('incidents.view') ? { key: 'deliveries', icon: <CloudServerOutlined />, label: <Link to="/deliveries">Webhook 投递</Link> } : null,
+    has('incidents.view') ? { key: 'jobs', icon: <HistoryOutlined />, label: <Link to="/jobs">分析任务</Link> } : null,
+    { type: 'divider' as const },
+    has('settings.view') ? { key: 'settings', icon: <SettingOutlined />, label: '平台设置', children: [
+      { key: 'settings-model', label: <Link to="/settings/model">模型设置</Link> },
+      { key: 'settings-integrations', label: <Link to="/settings/integrations">集成设置</Link> },
+    ] } : null,
+    (has('users.view') || has('versions.view')) ? { key: 'governance', icon: <SafetyCertificateOutlined />, label: '平台治理', children: [
+      ...(has('users.view') ? [{ key: 'access', icon: <TeamOutlined />, label: <Link to="/access">用户与权限</Link> }] : []),
+      ...(has('versions.view') ? [{ key: 'releases', icon: <ReadOutlined />, label: <Link to="/releases">版本说明</Link> }] : []),
+    ] } : null,
+  ].filter(Boolean) as any[]
+
+  const userMenu = {
+    items: [
+      { key: 'identity', disabled: true, label: <div><strong>{user.display_name}</strong><div className="user-menu-sub">@{user.username}</div></div> },
+      { type: 'divider' as const },
+      { key: 'change-password', icon: <LockOutlined />, label: '修改密码', onClick: () => setPasswordOpen(true) },
+      { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: () => logout() },
+    ],
+  }
+
   return (
     <Layout className="shell">
       <Layout.Sider className="app-sider" width={238} breakpoint="lg" collapsedWidth={0}>
         <div className="brand"><DeploymentUnitOutlined /><span>AIOps Console</span></div>
-        <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['settings']} items={[
-          { key: 'dashboard', icon: <DashboardOutlined />, label: <Link to="/dashboard">运维总览</Link> },
-          { key: 'incidents', icon: <AlertOutlined />, label: <Link to="/incidents">事件中心</Link> },
-          { key: 'alerts', icon: <BellOutlined />, label: <Link to="/alerts">原始告警</Link> },
-          { key: 'changes', icon: <BranchesOutlined />, label: <Link to="/changes">变更记录</Link> },
-          { key: 'deliveries', icon: <CloudServerOutlined />, label: <Link to="/deliveries">Webhook 投递</Link> },
-          { key: 'jobs', icon: <HistoryOutlined />, label: <Link to="/jobs">分析任务</Link> },
-          { type: 'divider' },
-          { key: 'settings', icon: <SettingOutlined />, label: '设置', children: [
-            { key: 'settings-model', label: <Link to="/settings/model">模型设置</Link> },
-            { key: 'settings-integrations', label: <Link to="/settings/integrations">集成设置</Link> },
-          ] },
-        ]} />
+        <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['settings', 'governance']} items={menuItems} />
+        <div className="sider-version"><span>Platform</span><strong>v0.7.0</strong></div>
       </Layout.Sider>
       <Layout className="main-layout">
         <Layout.Header className="header">
@@ -780,25 +835,44 @@ function AppLayout() {
             <span className="header-divider" />
             <Typography.Text type="secondary" className="header-section">AIOps 运维工作台</Typography.Text>
           </div>
-          <Space><Tag color="green">DEV</Tag><Typography.Text type="secondary" className="header-node">k8s-cp01</Typography.Text></Space>
+          <Space size={14}>
+            <Tag color="green">DEV</Tag>
+            <Typography.Text type="secondary" className="header-node">k8s-cp01</Typography.Text>
+            <Dropdown menu={userMenu} placement="bottomRight" trigger={['click']}>
+              <button className="user-trigger"><Avatar size="small" icon={<UserOutlined />} /><span>{user.display_name}</span></button>
+            </Dropdown>
+          </Space>
         </Layout.Header>
         <Layout.Content className="content">
           <Routes>
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/incidents" element={<IncidentsPage />} />
-            <Route path="/incidents/:id" element={<IncidentDetailPage />} />
-            <Route path="/alerts" element={<RawAlertsPage />} />
-            <Route path="/changes" element={<ChangeEventsPage />} />
-            <Route path="/deliveries" element={<DeliveriesPage />} />
-            <Route path="/jobs" element={<JobsPage />} />
-            <Route path="/settings/model" element={<ModelSettingsPage />} />
-            <Route path="/settings/integrations" element={<IntegrationSettingsPage />} />
+            <Route path="/dashboard" element={<PermissionRoute permission="dashboard.view"><DashboardPage /></PermissionRoute>} />
+            <Route path="/incidents" element={<PermissionRoute permission="incidents.view"><IncidentsPage /></PermissionRoute>} />
+            <Route path="/incidents/:id" element={<PermissionRoute permission="incidents.view"><IncidentDetailPage /></PermissionRoute>} />
+            <Route path="/alerts" element={<PermissionRoute permission="incidents.view"><RawAlertsPage /></PermissionRoute>} />
+            <Route path="/changes" element={<PermissionRoute permission="changes.view"><ChangeEventsPage /></PermissionRoute>} />
+            <Route path="/deliveries" element={<PermissionRoute permission="incidents.view"><DeliveriesPage /></PermissionRoute>} />
+            <Route path="/jobs" element={<PermissionRoute permission="incidents.view"><JobsPage /></PermissionRoute>} />
+            <Route path="/settings/model" element={<PermissionRoute permission="settings.view"><ModelSettingsPage /></PermissionRoute>} />
+            <Route path="/settings/integrations" element={<PermissionRoute permission="settings.view"><IntegrationSettingsPage /></PermissionRoute>} />
+            <Route path="/access" element={<PermissionRoute permission="users.view"><AccessManagementPage /></PermissionRoute>} />
+            <Route path="/releases" element={<PermissionRoute permission="versions.view"><ReleasesPage /></PermissionRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Layout.Content>
       </Layout>
+      <Modal title="修改密码" open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => passwordForm.submit()} confirmLoading={changePassword.isPending} destroyOnHidden>
+        <Form form={passwordForm} layout="vertical" onFinish={(values) => changePassword.mutate(values)}>
+          <Form.Item name="current_password" label="当前密码" rules={[{ required: true }]}><Input.Password autoComplete="current-password" /></Form.Item>
+          <Form.Item name="new_password" label="新密码" rules={[{ required: true }, { min: 10, message: '至少 10 个字符' }]}><Input.Password autoComplete="new-password" /></Form.Item>
+          <Form.Item name="confirm_password" label="确认新密码" dependencies={['new_password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator(_, value) { return value === getFieldValue('new_password') ? Promise.resolve() : Promise.reject(new Error('两次密码不一致')) } })]}><Input.Password autoComplete="new-password" /></Form.Item>
+        </Form>
+      </Modal>
     </Layout>
   )
 }
 
-export default AppLayout
+function AppRoot() {
+  return <AuthProvider><AppLayout /></AuthProvider>
+}
+
+export default AppRoot

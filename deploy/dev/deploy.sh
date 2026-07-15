@@ -4,6 +4,24 @@ ROOT=/root/aiops-console
 NS=aiops-dev
 [[ $(hostname) == k8s-cp01 ]] || { echo "must run on k8s-cp01" >&2; exit 1; }
 kubectl apply -f "$ROOT/deploy/dev/00-base.yaml"
+GIT_COMMIT=""
+if [[ -f "$ROOT/.git/HEAD" ]]; then
+  HEAD_VALUE="$(cat "$ROOT/.git/HEAD")"
+  if [[ "$HEAD_VALUE" == ref:* ]]; then
+    REF_PATH="${HEAD_VALUE#ref: }"
+    [[ -f "$ROOT/.git/$REF_PATH" ]] && GIT_COMMIT="$(cat "$ROOT/.git/$REF_PATH")"
+  else
+    GIT_COMMIT="$HEAD_VALUE"
+  fi
+fi
+if [[ -n "$GIT_COMMIT" ]]; then
+  PATCH="$(python3 - "$GIT_COMMIT" <<'PY2'
+import json, sys
+print(json.dumps({"data": {"GIT_COMMIT": sys.argv[1]}}))
+PY2
+)"
+  kubectl patch configmap aiops-config -n "$NS" --type merge -p "$PATCH" >/dev/null
+fi
 if ! kubectl get secret aiops-secrets -n "$NS" >/dev/null 2>&1; then
   PASSWORD=$(openssl rand -hex 24)
   kubectl create secret generic aiops-secrets -n "$NS" \
@@ -17,6 +35,7 @@ if [[ -z "$(kubectl get secret aiops-secrets -n "$NS" -o jsonpath='{.data.SETTIN
   kubectl patch secret aiops-secrets -n "$NS" --type merge \
     -p "$(printf '{"stringData":{"SETTINGS_ENCRYPTION_KEY":"%s"}}' "$ENCRYPTION_KEY")" >/dev/null
 fi
+bash "$ROOT/deploy/dev/ensure-auth-secrets.sh" "$NS"
 if [[ -z "$(kubectl get secret aiops-secrets -n "$NS" -o jsonpath='{.data.RELEASE_WEBHOOK_TOKEN}' 2>/dev/null)" ]]; then
   RELEASE_TOKEN="$(openssl rand -hex 24)"
   kubectl patch secret aiops-secrets -n "$NS" --type merge \
@@ -26,9 +45,12 @@ kubectl apply -f "$ROOT/deploy/dev/10-postgresql.yaml"
 kubectl apply -f "$ROOT/deploy/dev/40-security.yaml"
 kubectl rollout status statefulset/postgresql -n "$NS" --timeout=180s
 
-if [[ -f "$ROOT/backend/migrations/0002_change_trace.sql" ]]; then
-  kubectl exec -i -n "$NS" postgresql-0 --     psql -v ON_ERROR_STOP=1 -U aiops -d aiops < "$ROOT/backend/migrations/0002_change_trace.sql"
-fi
+for migration in "$ROOT"/backend/migrations/*.sql; do
+  [[ -f "$migration" ]] || continue
+  echo "Applying migration: $(basename "$migration")"
+  kubectl exec -i -n "$NS" postgresql-0 -- \
+    psql -v ON_ERROR_STOP=1 -U aiops -d aiops < "$migration"
+done
 
 kubectl apply -f "$ROOT/deploy/dev/20-backend.yaml"
 kubectl apply -f "$ROOT/deploy/dev/30-frontend.yaml"
