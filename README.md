@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.5.1`
+- 当前 API：`0.6.0`
 
 ## 核心链路
 
@@ -14,6 +14,8 @@ Prometheus → Alertmanager → FastAPI webhook
                           → Worker 自动发现 Kubernetes 目标
                           → Kubernetes API / Events / current+previous logs
                           → 原始告警 PromQL + 通用 Prometheus/Loki 证据
+                          → Kubernetes rollout / 镜像 / ConfigMap 元数据
+                          → CI/CD 发布事件 / 可选 Tempo 或 Jaeger Trace
                           → DeepSeek 受限动态 PromQL/LogQL 规划
                           → 安全校验与只读执行
                           → 结构化根因假设、覆盖度和缺口说明
@@ -24,8 +26,11 @@ Prometheus → Alertmanager → FastAPI webhook
 - `webhook_deliveries → alert_instances → incidents` 三层模型；
 - firing/resolved 幂等和同 fingerprint 跨 startsAt 生命周期收敛；
 - PostgreSQL Outbox、`FOR UPDATE SKIP LOCKED`、重试、死信和锁回收；
-- 自动发现 Pod、Deployment、StatefulSet、DaemonSet、Service 和 Node；
+- 自动发现 Pod、Deployment、ReplicaSet、StatefulSet、DaemonSet、Service 和 Node；
 - 自动采集容器状态、Ready、重启、退出码、OOMKilled、镜像和 Kubernetes Events；
+- 自动采集 Deployment revision、ReplicaSet rollout 历史、镜像变化和 ConfigMap 引用/元数据变更；
+- 通用 CI/CD 发布事件 webhook，支持 token 校验、幂等和开放事件自动重分析；
+- 可配置 Tempo/Jaeger Trace 数据源，按 service 和事件时间窗查询链路；
 - 自动读取当前与 previous 容器日志，Loki 延迟或短生命周期容器也能取证；
 - 从 Alertmanager `generatorURL` 解析原始 PromQL；
 - 自动查询 CPU、内存、重启、Ready、OOM、网络、CPU throttling、Node 和 target up；
@@ -33,7 +38,9 @@ Prometheus → Alertmanager → FastAPI webhook
 - 动态查询必须命中事件作用域，LogQL 仅允许 namespace 内简单行过滤；
 - 初次告警后自动安排完整 30 分钟观察窗口的补充分析；
 - 证据、查询、响应摘要、耗时和错误全部持久化；
-- React 工作台：总览、事件、告警、Webhook、任务、模型设置、证据覆盖度和动态计划；
+- React 工作台：总览、事件、告警、变更记录、Webhook、任务、模型与集成设置；
+- 事件详情按诊断概览、变更时间线、全部证据、关联与历史四个标签页组织；
+- 前端 vendor chunk 拆分，React、Ant Design 和数据层独立缓存；
 - 生产视图默认隐藏 `aiops_test=true` 测试数据，可通过页面开关查看。
 
 ## “无需告警模板”的边界
@@ -51,9 +58,22 @@ Prometheus → Alertmanager → FastAPI webhook
 
 ## 模型设置
 
-进入前端 `设置`，可维护 OpenAI-compatible Base URL、模型、API Key 和启用状态。API Key 使用 Fernet 加密存入 PostgreSQL，前端不回显明文；Worker 每次任务读取最新配置，无需重启。
+进入前端 `设置 → 模型设置`，可维护 OpenAI-compatible Base URL、模型、API Key 和启用状态。API Key 使用 Fernet 加密存入 PostgreSQL，前端不回显明文；Worker 每次任务读取最新配置，无需重启。
 
 当前验证模型：`deepseek-v4-flash`。
+
+## 变更与 Trace 集成
+
+CI/CD 发布后调用：
+
+```text
+POST /api/v1/webhooks/deployment-events
+X-AIOps-Token: <aiops-secrets/RELEASE_WEBHOOK_TOKEN>
+```
+
+请求包含 `namespace`、`service`、版本、commit、镜像、执行人和发生时间。平台会保存变更，并对同作用域的开放事件自动重新分析。
+
+Trace 在 `设置 → 集成设置` 中配置。当前支持 Tempo 和 Jaeger；未配置时页面明确显示未接入，不影响其他证据采集。
 
 ## 部署
 
@@ -73,7 +93,7 @@ python3 deploy/dev/scenarios/validate.py
 bash deploy/dev/scenarios/cleanup.sh
 ```
 
-覆盖 CrashLoopBackOff、OOMKilled、Node-only、缺失标签降级、HTTP 动态查询规划、不同 startsAt 的 fingerprint 生命周期、测试数据隔离和无死信任务。
+覆盖 CrashLoopBackOff、OOMKilled、Node-only、缺失标签降级、HTTP 动态查询规划、rollout/镜像/ConfigMap、CI/CD 事件、Tempo Trace、不同 startsAt 的 fingerprint 生命周期、测试数据隔离和无死信任务。
 
 后端单元测试：
 

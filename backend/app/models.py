@@ -122,3 +122,45 @@ class ModelSettings(Base):
     last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_test_status: Mapped[str | None] = mapped_column(String(32))
     last_test_message: Mapped[str | None] = mapped_column(Text)
+
+class ChangeEvent(Base):
+    __tablename__ = "change_events"
+    __table_args__ = (
+        UniqueConstraint("content_hash", name="uq_change_event_content_hash"),
+        Index("ix_change_event_scope_time", "namespace", "service", "occurred_at"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="cicd")
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, default="deployment")
+    is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cluster: Mapped[str | None] = mapped_column(String(255))
+    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
+    service: Mapped[str] = mapped_column(String(255), nullable=False)
+    environment: Mapped[str | None] = mapped_column(String(128))
+    workload_kind: Mapped[str | None] = mapped_column(String(64))
+    workload_name: Mapped[str | None] = mapped_column(String(255))
+    version: Mapped[str | None] = mapped_column(String(255))
+    commit_sha: Mapped[str | None] = mapped_column(String(255))
+    image: Mapped[str | None] = mapped_column(String(1000))
+    actor: Mapped[str | None] = mapped_column(String(255))
+    url: Mapped[str | None] = mapped_column(String(2000))
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TraceSettings(Base):
+    __tablename__ = "trace_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="tempo")
+    base_url: Mapped[str | None] = mapped_column(String(1000))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    service_tag: Mapped[str] = mapped_column(String(255), nullable=False, default="service.name")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_status: Mapped[str | None] = mapped_column(String(32))
+    last_test_message: Mapped[str | None] = mapped_column(Text)
+

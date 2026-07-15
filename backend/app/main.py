@@ -3,6 +3,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import secrets
 import time
 from typing import Any
 
@@ -10,7 +11,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, make_asgi_app
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,11 +26,13 @@ from app.model_config import (
 from app.models import (
     AlertInstance,
     AnalysisRun,
+    ChangeEvent,
     EvidenceSnapshot,
     Incident,
     IncidentAlert,
     ModelSettings,
     OutboxJob,
+    TraceSettings,
     WebhookDelivery,
 )
 
@@ -185,6 +188,53 @@ def delivery_payload(row: WebhookDelivery) -> dict[str, Any]:
     }
 
 
+def change_event_payload(row: ChangeEvent) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "source": row.source,
+        "event_type": row.event_type,
+        "is_test": row.is_test,
+        "cluster": row.cluster,
+        "namespace": row.namespace,
+        "service": row.service,
+        "environment": row.environment,
+        "workload_kind": row.workload_kind,
+        "workload_name": row.workload_name,
+        "version": row.version,
+        "commit_sha": row.commit_sha,
+        "image": row.image,
+        "actor": row.actor,
+        "url": row.url,
+        "title": row.title,
+        "description": row.description,
+        "metadata": row.details or {},
+        "occurred_at": row.occurred_at,
+        "received_at": row.received_at,
+    }
+
+
+def trace_settings_payload(row: TraceSettings | None) -> dict[str, Any]:
+    if row is None:
+        return {
+            "provider": "tempo",
+            "base_url": "",
+            "enabled": False,
+            "service_tag": "service.name",
+            "last_tested_at": None,
+            "last_test_status": None,
+            "last_test_message": "尚未配置 Trace 数据源",
+        }
+    return {
+        "provider": row.provider,
+        "base_url": row.base_url or "",
+        "enabled": row.enabled,
+        "service_tag": row.service_tag,
+        "last_tested_at": row.last_tested_at,
+        "last_test_status": row.last_test_status,
+        "last_test_message": row.last_test_message,
+    }
+
+
 def extract_prometheus_series(raw_response: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_response, dict):
         return []
@@ -238,7 +288,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.5.1", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
 app.mount("/metrics", make_asgi_app())
 
 
@@ -253,6 +303,34 @@ async def ready(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
     return {"status": "ready"}
 
 
+
+
+class DeploymentEventInput(BaseModel):
+    source: str = Field(default="cicd", max_length=64)
+    event_type: str = Field(default="deployment", max_length=64)
+    is_test: bool = False
+    cluster: str | None = Field(default=None, max_length=255)
+    namespace: str = Field(min_length=1, max_length=255)
+    service: str = Field(min_length=1, max_length=255)
+    environment: str | None = Field(default=None, max_length=128)
+    workload_kind: str | None = Field(default=None, max_length=64)
+    workload_name: str | None = Field(default=None, max_length=255)
+    version: str | None = Field(default=None, max_length=255)
+    commit_sha: str | None = Field(default=None, max_length=255)
+    image: str | None = Field(default=None, max_length=1000)
+    actor: str | None = Field(default=None, max_length=255)
+    url: str | None = Field(default=None, max_length=2000)
+    title: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=4000)
+    occurred_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TraceSettingsUpdate(BaseModel):
+    provider: str = Field(default="tempo", max_length=64)
+    base_url: str | None = Field(default=None, max_length=1000)
+    enabled: bool = False
+    service_tag: str = Field(default="service.name", max_length=255)
 
 
 class ModelSettingsUpdate(BaseModel):
@@ -392,6 +470,167 @@ async def test_model_settings(
         "base_url": base_url,
         "model": model,
     }
+
+
+@app.post("/api/v1/webhooks/deployment-events", status_code=202)
+async def deployment_event_webhook(
+    payload: DeploymentEventInput,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    configured_token = settings.release_webhook_token or ""
+    supplied_token = request.headers.get("x-aiops-token", "")
+    if configured_token and not secrets.compare_digest(configured_token, supplied_token):
+        raise HTTPException(401, "invalid deployment webhook token")
+    namespace = payload.namespace.strip()
+    service = payload.service.strip()
+    occurred_at = payload.occurred_at or now()
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=UTC)
+    normalized = payload.model_dump(mode="json")
+    normalized["occurred_at"] = occurred_at.isoformat()
+    content_hash = stable_hash(normalized)
+    existing = await session.scalar(select(ChangeEvent).where(ChangeEvent.content_hash == content_hash))
+    if existing is not None:
+        return {"accepted": True, "duplicate": True, "event": change_event_payload(existing)}
+    title = (payload.title or f"{service} {payload.event_type}").strip()
+    event = ChangeEvent(
+        content_hash=content_hash,
+        source=payload.source.strip() or "cicd",
+        event_type=payload.event_type.strip() or "deployment",
+        is_test=payload.is_test or service.startswith("aiops-scenario-") or "测试" in title,
+        cluster=(payload.cluster or "").strip() or None,
+        namespace=namespace,
+        service=service,
+        environment=(payload.environment or "").strip() or None,
+        workload_kind=(payload.workload_kind or "").strip() or None,
+        workload_name=(payload.workload_name or "").strip() or None,
+        version=(payload.version or "").strip() or None,
+        commit_sha=(payload.commit_sha or "").strip() or None,
+        image=(payload.image or "").strip() or None,
+        actor=(payload.actor or "").strip() or None,
+        url=(payload.url or "").strip() or None,
+        title=title,
+        description=payload.description,
+        details=payload.metadata or {},
+        occurred_at=occurred_at,
+    )
+    session.add(event)
+    await session.flush()
+    related_incidents = (
+        await session.scalars(
+            select(Incident).where(
+                Incident.status == "open",
+                Incident.labels["namespace"].astext == namespace,
+                Incident.labels["service"].astext == service,
+                Incident.first_seen_at >= occurred_at - timedelta(hours=4),
+                Incident.first_seen_at <= occurred_at + timedelta(hours=4),
+            )
+        )
+    ).all()
+    queued: list[int] = []
+    for incident in related_incidents:
+        key = f"change:{event.id}:reanalyze:{incident.id}"
+        session.add(OutboxJob(
+            job_type="analyze_incident",
+            payload={"incident_id": incident.id, "change_event_id": event.id},
+            idempotency_key=key,
+            priority=40,
+            max_attempts=settings.worker_max_attempts,
+        ))
+        queued.append(incident.id)
+    await session.commit()
+    await session.refresh(event)
+    return {"accepted": True, "duplicate": False, "event": change_event_payload(event), "reanalyze_incidents": queued}
+
+
+@app.get("/api/v1/change-events")
+async def list_change_events(
+    namespace: str | None = None,
+    service: str | None = None,
+    source: str | None = None,
+    include_test: bool = False,
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    filters = []
+    if namespace:
+        filters.append(ChangeEvent.namespace == namespace)
+    if service:
+        filters.append(ChangeEvent.service == service)
+    if source:
+        filters.append(ChangeEvent.source == source)
+    rows = (await session.scalars(select(ChangeEvent).where(*filters).order_by(ChangeEvent.occurred_at.desc()).limit(2000))).all()
+    hidden = sum(1 for row in rows if row.is_test)
+    if not include_test:
+        rows = [row for row in rows if not row.is_test]
+    limit = max(1, min(limit, 500))
+    return {"items": [change_event_payload(row) for row in rows[:limit]], "total": len(rows), "hidden_test_count": 0 if include_test else hidden, "include_test": include_test}
+
+
+@app.get("/api/v1/settings/traces")
+async def get_trace_settings(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    return trace_settings_payload(await session.get(TraceSettings, 1))
+
+
+@app.put("/api/v1/settings/traces")
+async def update_trace_settings(
+    payload: TraceSettingsUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    provider = payload.provider.strip().lower()
+    if provider not in {"tempo", "jaeger"}:
+        raise HTTPException(422, "provider 仅支持 tempo 或 jaeger")
+    base_url = (payload.base_url or "").strip().rstrip("/")
+    if payload.enabled and not base_url:
+        raise HTTPException(422, "启用 Trace 前必须填写 Base URL")
+    row = await session.get(TraceSettings, 1)
+    if row is None:
+        row = TraceSettings(id=1, provider=provider, base_url=base_url or None, enabled=payload.enabled, service_tag=payload.service_tag.strip() or "service.name")
+        session.add(row)
+    else:
+        row.provider = provider
+        row.base_url = base_url or None
+        row.enabled = payload.enabled
+        row.service_tag = payload.service_tag.strip() or "service.name"
+    await session.commit()
+    await session.refresh(row)
+    return trace_settings_payload(row)
+
+
+@app.post("/api/v1/settings/traces/test")
+async def test_trace_settings(
+    payload: TraceSettingsUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    provider = payload.provider.strip().lower()
+    base_url = (payload.base_url or "").strip().rstrip("/")
+    if provider not in {"tempo", "jaeger"} or not base_url:
+        raise HTTPException(422, "请填写有效的 Tempo/Jaeger 配置")
+    started = time.perf_counter()
+    status = "failed"
+    detail = ""
+    try:
+        path = "/api/search" if provider == "tempo" else "/api/services"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0)) as client:
+            response = await client.get(base_url + path, params={"limit": 1} if provider == "tempo" else None)
+            response.raise_for_status()
+        status = "success"
+        detail = "连接成功"
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"[:1000]
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    row = await session.get(TraceSettings, 1)
+    if row is None:
+        row = TraceSettings(id=1, provider=provider, base_url=base_url, enabled=payload.enabled, service_tag=payload.service_tag.strip() or "service.name")
+        session.add(row)
+    row.last_tested_at = now()
+    row.last_test_status = status
+    row.last_test_message = f"{detail}，耗时 {latency_ms} ms"
+    await session.commit()
+    if status != "success":
+        raise HTTPException(502, detail)
+    return {"ok": True, "message": detail, "latency_ms": latency_ms}
 
 
 @app.post("/api/v1/webhooks/alertmanager", status_code=202)
@@ -614,6 +853,8 @@ async def dashboard_summary(
         await session.scalars(select(OutboxJob).order_by(OutboxJob.created_at.desc()))
     ).all()
     jobs = [row for row in jobs if int((row.payload or {}).get("incident_id") or 0) in incident_ids]
+    all_changes = (await session.scalars(select(ChangeEvent).where(ChangeEvent.occurred_at >= since))).all()
+    changes = all_changes if include_test else [row for row in all_changes if not row.is_test]
     recent = incidents[:8]
     model_row = await session.get(ModelSettings, 1)
     model_public = public_model_settings(model_row)
@@ -638,6 +879,8 @@ async def dashboard_summary(
         "analysis_total": len(analyses),
         "pending_jobs": sum(1 for row in jobs if row.status in ("pending", "retry", "processing")),
         "failed_jobs": sum(1 for row in jobs if row.status == "dead"),
+        "changes_24h": len(changes),
+        "hidden_test_change_count": 0 if include_test else sum(1 for row in all_changes if row.is_test),
         "recent_incidents": [incident_payload(row) for row in recent],
         "hidden_test_count": 0 if include_test else test_count,
         "include_test": include_test,
@@ -809,6 +1052,16 @@ async def incident_detail(
             .order_by(EvidenceSnapshot.created_at.desc())
         )
     ).all()
+    scope_namespace = str((incident.labels or {}).get("namespace") or "")
+    scope_service = str((incident.labels or {}).get("service") or "")
+    change_start = incident.first_seen_at - timedelta(minutes=settings.change_lookback_minutes)
+    change_end = (incident.resolved_at or incident.last_seen_at or now()) + timedelta(minutes=30)
+    change_filters = [ChangeEvent.occurred_at >= change_start, ChangeEvent.occurred_at <= change_end]
+    if scope_namespace:
+        change_filters.append(ChangeEvent.namespace == scope_namespace)
+    if scope_service:
+        change_filters.append(ChangeEvent.service == scope_service)
+    changes = (await session.scalars(select(ChangeEvent).where(*change_filters).order_by(ChangeEvent.occurred_at.desc()).limit(100))).all()
     detail_origin = classify_origin(title=incident.title, labels=incident.labels)
     if alerts:
         alert_origins = [
@@ -835,6 +1088,7 @@ async def incident_detail(
         "last_seen_at": incident.last_seen_at,
         "resolved_at": incident.resolved_at,
         **detail_origin,
+        "change_events": [change_event_payload(row) for row in changes],
         "alerts": [
             {
                 "id": alert.id,

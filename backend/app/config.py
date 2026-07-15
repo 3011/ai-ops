@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     dynamic_planner_enabled: bool = True
     dynamic_planner_max_prometheus_queries: int = 4
     dynamic_planner_max_loki_queries: int = 2
+    release_webhook_token: str | None = None
+    change_lookback_minutes: int = 120
+    trace_query_limit: int = 20
 
 
 @lru_cache

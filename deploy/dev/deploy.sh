@@ -17,12 +17,22 @@ if [[ -z "$(kubectl get secret aiops-secrets -n "$NS" -o jsonpath='{.data.SETTIN
   kubectl patch secret aiops-secrets -n "$NS" --type merge \
     -p "$(printf '{"stringData":{"SETTINGS_ENCRYPTION_KEY":"%s"}}' "$ENCRYPTION_KEY")" >/dev/null
 fi
+if [[ -z "$(kubectl get secret aiops-secrets -n "$NS" -o jsonpath='{.data.RELEASE_WEBHOOK_TOKEN}' 2>/dev/null)" ]]; then
+  RELEASE_TOKEN="$(openssl rand -hex 24)"
+  kubectl patch secret aiops-secrets -n "$NS" --type merge \
+    -p "$(printf '{"stringData":{"RELEASE_WEBHOOK_TOKEN":"%s"}}' "$RELEASE_TOKEN")" >/dev/null
+fi
 kubectl apply -f "$ROOT/deploy/dev/10-postgresql.yaml"
+kubectl apply -f "$ROOT/deploy/dev/40-security.yaml"
+kubectl rollout status statefulset/postgresql -n "$NS" --timeout=180s
+
+if [[ -f "$ROOT/backend/migrations/0002_change_trace.sql" ]]; then
+  kubectl exec -i -n "$NS" postgresql-0 --     psql -v ON_ERROR_STOP=1 -U aiops -d aiops < "$ROOT/backend/migrations/0002_change_trace.sql"
+fi
+
 kubectl apply -f "$ROOT/deploy/dev/20-backend.yaml"
 kubectl apply -f "$ROOT/deploy/dev/30-frontend.yaml"
-kubectl apply -f "$ROOT/deploy/dev/40-security.yaml"
 kubectl apply -f "$ROOT/deploy/dev/50-alertmanager-config.yaml"
-kubectl rollout status statefulset/postgresql -n "$NS" --timeout=180s
 kubectl rollout status deployment/aiops-api -n "$NS" --timeout=300s
 kubectl rollout status deployment/aiops-worker -n "$NS" --timeout=300s
 kubectl rollout status deployment/aiops-web -n "$NS" --timeout=300s

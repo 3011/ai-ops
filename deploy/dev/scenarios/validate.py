@@ -72,6 +72,38 @@ checks.append(
     )
 )
 
+
+rollout = find("rollout") or find("发布变更")
+if rollout:
+    detail = get(f"/incidents/{rollout['id']}")
+    analysis = detail["analyses"][0]
+    latest_ids = set((analysis.get("result") or {}).get("evidence_refs") or [])
+    latest_evidence = [item for item in detail.get("evidence", []) if item.get("id") in latest_ids]
+    k8s = next((item for item in latest_evidence if item.get("source_type") == "kubernetes"), None)
+    changes = next((item for item in latest_evidence if item.get("source_type") == "changes"), None)
+    traces = next((item for item in latest_evidence if item.get("source_type") == "traces"), None)
+    revisions = {str(item.get("revision")) for item in ((k8s or {}).get("summary") or {}).get("rollout_history", [])}
+    images = {image for item in ((k8s or {}).get("summary") or {}).get("rollout_history", []) for image in (item.get("images") or [])}
+    configmaps = ((k8s or {}).get("summary") or {}).get("configmaps") or []
+    change_count = ((changes or {}).get("summary") or {}).get("event_count", 0)
+    trace_count = ((traces or {}).get("summary") or {}).get("trace_count", 0)
+    checks.append((
+        analysis.get("status") in ("succeeded", "evidence_ready")
+        and {"1", "2"}.issubset(revisions)
+        and {"busybox:1.36", "busybox:1.36.1"}.issubset(images)
+        and bool(configmaps)
+        and change_count >= 2
+        and trace_count >= 1,
+        f"rollout/change/trace: revisions={sorted(revisions)} images={sorted(images)} configmaps={len(configmaps)} changes={change_count} traces={trace_count}",
+    ))
+else:
+    checks.append((False, "missing scenario: rollout/change/trace"))
+
+changes_api = get("/change-events?include_test=true&namespace=aiops-dev&service=aiops-scenario-rollout")
+checks.append((changes_api.get("total", 0) >= 2, f"change events API: total={changes_api.get('total', 0)}"))
+trace_settings = get("/settings/traces")
+checks.append((trace_settings.get("provider") in ("tempo", "jaeger"), f"trace settings API: provider={trace_settings.get('provider')} enabled={trace_settings.get('enabled')}"))
+
 jobs = get("/analysis-jobs?include_test=true&limit=500")["items"]
 checks.append(
     (not any(job["status"] == "dead" for job in jobs), "no dead analysis jobs")

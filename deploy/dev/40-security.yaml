@@ -10,7 +10,7 @@ metadata:
   name: aiops-worker-observer
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "endpoints", "events", "nodes", "namespaces"]
+    resources: ["pods", "services", "endpoints", "events", "nodes", "namespaces", "configmaps"]
     verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods/log"]

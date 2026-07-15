@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-scenario-rollout-config
+  namespace: aiops-dev
+  labels:
+    aiops_test: "true"
+data:
+  APP_MESSAGE: release-v1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-rollout
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-rollout
+    service: aiops-scenario-rollout
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-rollout
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-rollout
+        service: aiops-scenario-rollout
+        aiops_test: "true"
+      annotations:
+        release.aiops/version: v1
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo release=$APP_MESSAGE; sleep 3600"]
+          envFrom:
+            - configMapRef:
+                name: aiops-scenario-rollout-config
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-scenario-rollout
+  namespace: aiops-dev
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: aiops-scenario-rollout
+      rules:
+        - alert: AIOpsRolloutChangeScenario
+          expr: vector(1)
+          for: 5s
+          labels:
+            severity: warning
+            namespace: aiops-dev
+            service: aiops-scenario-rollout
+            environment: development
+            aiops_enabled: "true"
+            aiops_test: "true"
+          annotations:
+            summary: AIOps 发布变更与 rollout 自动关联测试
+            description: 验证 Deployment rollout、镜像、ConfigMap 和 CI/CD 发布事件是否自动进入根因分析。

@@ -1,6 +1,9 @@
 import {
   AlertOutlined,
   ApiOutlined,
+  ApartmentOutlined,
+  BranchesOutlined,
+  CodeOutlined,
   BarChartOutlined,
   BellOutlined,
   CloudServerOutlined,
@@ -8,6 +11,7 @@ import {
   DeploymentUnitOutlined,
   HistoryOutlined,
   ReloadOutlined,
+  RocketOutlined,
   SearchOutlined,
   SettingOutlined,
   ThunderboltOutlined,
@@ -18,6 +22,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Descriptions,
   Empty,
   Form,
@@ -32,6 +37,8 @@ import {
   Statistic,
   Switch,
   Table,
+  Tabs,
+  Timeline,
   Tag,
   Typography,
   message,
@@ -212,7 +219,8 @@ function DashboardPage() {
               <Col span={12}><Statistic title="待处理任务" value={data.pending_jobs || 0} /></Col>
               <Col span={12}><Statistic title="死信任务" value={data.failed_jobs || 0} valueStyle={{ color: data.failed_jobs ? '#cf1322' : undefined }} /></Col>
               <Col span={12}><Statistic title="分析总数" value={data.analysis_total || 0} /></Col>
-              <Col span={12}><Statistic title="当前模型" value={data.model?.model || '-'} valueStyle={{ fontSize: 15 }} /></Col>
+              <Col span={12}><Statistic title="24h 变更" value={data.changes_24h || 0} prefix={<RocketOutlined />} /></Col>
+              <Col span={24}><Statistic title="当前模型" value={data.model?.model || '-'} valueStyle={{ fontSize: 15 }} /></Col>
             </Row>
           </Card>
           <Card title="高频服务" className="spaced-card">
@@ -391,7 +399,7 @@ function AnalysisCard({ analysis }: { analysis: any }) {
 
 function EvidenceCard({ evidence }: { evidence: any }) {
   const queryName = evidence.summary?.query_name || (evidence.source_type === 'kubernetes' ? '自动目标发现' : '日志证据')
-  const sourceColor = evidence.source_type === 'prometheus' ? 'blue' : evidence.source_type === 'kubernetes' ? 'cyan' : evidence.source_type === 'planner' ? 'geekblue' : 'purple'
+  const sourceColor = evidence.source_type === 'prometheus' ? 'blue' : evidence.source_type === 'kubernetes' ? 'cyan' : evidence.source_type === 'planner' ? 'geekblue' : evidence.source_type === 'changes' ? 'gold' : evidence.source_type === 'traces' ? 'magenta' : 'purple'
   const summary = evidence.summary || {}
   return (
     <Card size="small" title={<Space><Tag color={sourceColor}>{evidence.source_type}</Tag><Typography.Text>{queryName}</Typography.Text></Space>} extra={`${evidence.duration_ms ?? '-'} ms`}>
@@ -399,7 +407,17 @@ function EvidenceCard({ evidence }: { evidence: any }) {
         <Descriptions.Item label="时间窗口">{formatTime(evidence.query_start)} ～ {formatTime(evidence.query_end)}</Descriptions.Item>
         <Descriptions.Item label="查询计划"><Typography.Text code copyable={{ text: evidence.query_text }}>{evidence.query_text}</Typography.Text></Descriptions.Item>
       </Descriptions>
-      {evidence.error ? <Alert type="warning" showIcon message="数据源查询失败" description={evidence.error} /> : evidence.source_type === 'prometheus' ? <MetricChart evidence={evidence} /> : evidence.source_type === 'planner' ? (
+      {evidence.error ? <Alert type="warning" showIcon message="数据源查询失败" description={evidence.error} /> : evidence.source_type === 'prometheus' ? <MetricChart evidence={evidence} /> : evidence.source_type === 'changes' ? (
+        <Timeline items={(summary.items || []).map((item: any) => ({ color: 'blue', children: <div><Space wrap><Tag color="gold">{item.source}</Tag><strong>{item.title}</strong><Typography.Text type="secondary">{formatTime(item.occurred_at)}</Typography.Text></Space><div className="timeline-meta">{[item.version, item.commit_sha, item.image, item.actor].filter(Boolean).join(' · ') || item.description || '-'}</div></div> }))} />
+      ) : evidence.source_type === 'traces' ? (
+        summary.configured === false ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Trace 数据源尚未配置" /> : (summary.traces || []).length ? <Table rowKey={(row: any) => row.trace_id} size="small" pagination={{ pageSize: 8 }} dataSource={summary.traces} columns={[
+          { title: 'Trace ID', dataIndex: 'trace_id', ellipsis: true },
+          { title: '入口服务', dataIndex: 'root_service', render: (value, row: any) => value || (row.services || []).join(', ') || '-' },
+          { title: '根 Span', dataIndex: 'root_span', render: (value) => value || '-' },
+          { title: 'Span 数', dataIndex: 'span_count', width: 90, render: (value) => value ?? '-' },
+          { title: '耗时', dataIndex: 'duration_ms', width: 100, render: (value, row: any) => value != null ? `${value} ms` : row.duration != null ? `${row.duration} μs` : '-' },
+        ]} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前时间窗口未找到 Trace" />
+      ) : evidence.source_type === 'planner' ? (
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
             <Descriptions.Item label="规划模型">{summary.model || '-'}</Descriptions.Item>
@@ -424,6 +442,19 @@ function EvidenceCard({ evidence }: { evidence: any }) {
             { title: 'Ready', dataIndex: 'ready', width: 80, render: (value: boolean) => <Tag color={value ? 'green' : 'red'}>{value ? 'Yes' : 'No'}</Tag> },
             { title: '重启', width: 80, render: (_: unknown, row: any) => (row.containers || []).reduce((sum: number, item: any) => sum + (item.restart_count || 0), 0) },
           ]} />}
+          {(summary.rollout_history || []).length > 0 && <Card size="small" title="Rollout 与镜像历史"><Table rowKey="replicaset" size="small" pagination={{ pageSize: 6 }} dataSource={summary.rollout_history} columns={[
+            { title: '时间', dataIndex: 'created_at', width: 170, render: formatTime },
+            { title: 'Deployment', dataIndex: 'deployment' },
+            { title: 'Revision', dataIndex: 'revision', width: 90 },
+            { title: 'ReplicaSet', dataIndex: 'replicaset' },
+            { title: '镜像', dataIndex: 'images', render: (values: string[]) => <Space direction="vertical" size={1}>{(values || []).map((value) => <Typography.Text code key={value}>{value}</Typography.Text>)}</Space> },
+          ]} /></Card>}
+          {(summary.configmaps || []).length > 0 && <Card size="small" title="ConfigMap 引用"><Table rowKey="name" size="small" pagination={false} dataSource={summary.configmaps} columns={[
+            { title: 'ConfigMap', dataIndex: 'name' },
+            { title: '最近元数据时间', dataIndex: 'updated_at', width: 180, render: formatTime },
+            { title: 'ResourceVersion', dataIndex: 'resource_version', width: 150 },
+            { title: '键', dataIndex: 'keys', render: (values: string[]) => <Space wrap>{(values || []).slice(0, 12).map((value) => <Tag key={value}>{value}</Tag>)}</Space> },
+          ]} /></Card>}
           {(summary.events || []).length > 0 ? <Table rowKey={(row: any) => `${row.time}-${row.object_name}-${row.reason}`} size="small" pagination={{ pageSize: 8 }} dataSource={summary.events} columns={[
             { title: '时间', dataIndex: 'time', width: 170, render: formatTime }, { title: '类型', dataIndex: 'type', width: 90, render: (value: string) => <Tag color={value === 'Warning' ? 'orange' : 'blue'}>{value}</Tag> },
             { title: '对象', width: 190, render: (_: unknown, row: any) => `${row.object_kind || '-'}/${row.object_name || '-'}` }, { title: '原因', dataIndex: 'reason', width: 140 }, { title: '消息', dataIndex: 'message', ellipsis: true },
@@ -460,45 +491,79 @@ function IncidentDetailPage() {
   const citedIds = new Set((latestAnalysis?.result?.root_cause_hypotheses || []).flatMap((item: any) => item.evidence_refs || []))
   const latestEvidence = latestEvidenceIds.size ? (data.evidence || []).filter((item: any) => latestEvidenceIds.has(item.id)) : (data.evidence || [])
   const visibleEvidence = citedIds.size
-    ? latestEvidence.filter((item: any) => citedIds.has(item.id) || item.source_type === 'kubernetes' || item.error).slice(0, 10)
-    : latestEvidence.sort((a: any, b: any) => (a.source_type === 'kubernetes' ? -1 : b.source_type === 'kubernetes' ? 1 : 0)).slice(0, 10)
-  return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Link to="/incidents">← 返回事件中心</Link>
-      <PageHeader title={data.title} subtitle={`事件 #${data.id} · ${data.labels?.cluster || '-'} / ${data.labels?.namespace || '-'} / ${data.labels?.service || '-'}`} actions={<><OriginTags item={data} /><StatusTag value={data.severity} /><StatusTag value={data.status} /><Button type="primary" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button></>} />
-      <Card title="事件概况">
-        <Descriptions bordered column={{ xs: 1, md: 2, xl: 4 }} size="small">
-          <Descriptions.Item label="关联告警数">{data.alert_count}</Descriptions.Item>
-          <Descriptions.Item label="环境">{data.labels?.environment || '-'}</Descriptions.Item>
-          <Descriptions.Item label="首次发生">{formatTime(data.first_seen_at)}</Descriptions.Item>
-          <Descriptions.Item label="恢复时间">{formatTime(data.resolved_at)}</Descriptions.Item>
-        </Descriptions>
-      </Card>
-      <Card title="AI 诊断"><AnalysisCard analysis={latestAnalysis} /></Card>
-      <Card title={`关键证据（${visibleEvidence.length}）`}>
-        {visibleEvidence.length ? <Space direction="vertical" size={12} style={{ width: '100%' }}>{visibleEvidence.map((item: any) => <EvidenceCard key={item.id} evidence={item} />)}</Space> : <Empty description="尚无证据快照，可点击重新分析" />}
-      </Card>
-      <Card title="关联告警">
-        <Table rowKey="id" size="small" pagination={false} dataSource={data.alerts || []} columns={[
-          { title: '告警名', dataIndex: 'alertname' },
-          { title: '级别', dataIndex: 'severity', width: 95, render: (value) => <StatusTag value={value} /> },
-          { title: '状态', dataIndex: 'status', width: 95, render: (value) => <StatusTag value={value} /> },
-          { title: '摘要', render: (_: unknown, row: any) => row.annotations?.summary || '-' },
-          { title: '开始', dataIndex: 'starts_at', width: 170, render: formatTime },
-          { title: '结束', dataIndex: 'ends_at', width: 170, render: formatTime },
-        ]} />
-      </Card>
-      <Card title="分析历史">
-        <Table rowKey="id" size="small" pagination={false} dataSource={data.analyses || []} columns={[
-          { title: 'ID', dataIndex: 'id', width: 70 },
-          { title: '状态', dataIndex: 'status', render: (value) => <StatusTag value={value} /> },
-          { title: '模型', dataIndex: 'model' },
-          { title: '开始', dataIndex: 'created_at', render: formatTime },
-          { title: '完成', dataIndex: 'finished_at', render: formatTime },
-        ]} />
-      </Card>
-    </Space>
-  )
+    ? latestEvidence.filter((item: any) => citedIds.has(item.id) || ['kubernetes', 'changes', 'traces'].includes(item.source_type) || item.error)
+    : latestEvidence
+  const k8sEvidence = latestEvidence.find((item: any) => item.source_type === 'kubernetes')
+  const timelineRows: any[] = []
+  for (const item of data.change_events || []) timelineRows.push({ time: item.occurred_at, type: 'change', title: item.title, detail: [item.version, item.commit_sha, item.image, item.actor].filter(Boolean).join(' · ') || item.description, color: 'blue' })
+  for (const item of k8sEvidence?.summary?.change_events || []) timelineRows.push({ time: item.time, type: item.type, title: item.title, detail: item.description, color: item.type === 'rollout' ? 'green' : 'gold' })
+  for (const item of k8sEvidence?.summary?.events || []) timelineRows.push({ time: item.time, type: item.type, title: `${item.object_kind || 'Object'}/${item.object_name || '-'} · ${item.reason || '-'}`, detail: item.message, color: item.type === 'Warning' ? 'red' : 'gray' })
+  for (const item of data.alerts || []) {
+    timelineRows.push({ time: item.starts_at, type: 'alert', title: `${item.alertname} firing`, detail: item.annotations?.summary, color: 'red' })
+    if (item.ends_at) timelineRows.push({ time: item.ends_at, type: 'alert', title: `${item.alertname} resolved`, detail: '告警恢复', color: 'green' })
+  }
+  for (const item of data.analyses || []) timelineRows.push({ time: item.finished_at || item.created_at, type: 'analysis', title: `分析 #${item.id} ${item.status}`, detail: item.model || '确定性证据分析', color: 'blue' })
+  timelineRows.sort((a, b) => dayjs(b.time).valueOf() - dayjs(a.time).valueOf())
+
+  const overview = <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Row gutter={[16, 16]}>
+      <Col xs={24} md={6}><Card className="mini-stat"><Statistic title="状态" value={data.status} valueStyle={{ color: data.status === 'open' ? '#cf1322' : '#389e0d', fontSize: 22 }} /></Card></Col>
+      <Col xs={24} md={6}><Card className="mini-stat"><Statistic title="严重级别" value={data.severity} valueStyle={{ fontSize: 22 }} /></Card></Col>
+      <Col xs={24} md={6}><Card className="mini-stat"><Statistic title="关联告警" value={data.alert_count || 0} /></Card></Col>
+      <Col xs={24} md={6}><Card className="mini-stat"><Statistic title="关联变更" value={(data.change_events || []).length} prefix={<RocketOutlined />} /></Card></Col>
+    </Row>
+    <Card title="事件概况">
+      <Descriptions bordered column={{ xs: 1, md: 2, xl: 4 }} size="small">
+        <Descriptions.Item label="集群">{data.labels?.cluster || '-'}</Descriptions.Item>
+        <Descriptions.Item label="命名空间">{data.labels?.namespace || '-'}</Descriptions.Item>
+        <Descriptions.Item label="服务">{data.labels?.service || '-'}</Descriptions.Item>
+        <Descriptions.Item label="环境">{data.labels?.environment || '-'}</Descriptions.Item>
+        <Descriptions.Item label="首次发生">{formatTime(data.first_seen_at)}</Descriptions.Item>
+        <Descriptions.Item label="最后更新">{formatTime(data.last_seen_at)}</Descriptions.Item>
+        <Descriptions.Item label="恢复时间">{formatTime(data.resolved_at)}</Descriptions.Item>
+        <Descriptions.Item label="来源"><OriginTags item={data} /></Descriptions.Item>
+      </Descriptions>
+    </Card>
+    <Card title="AI 诊断"><AnalysisCard analysis={latestAnalysis} /></Card>
+  </Space>
+
+  const timeline = <Card className="timeline-card" title="事件与变更时间线" extra={<Tag>{timelineRows.length} 条</Tag>}>
+    {timelineRows.length ? <Timeline mode="left" items={timelineRows.map((item) => ({ color: item.color, label: formatTime(item.time), children: <div className="timeline-entry"><Space wrap><Tag>{item.type}</Tag><strong>{item.title}</strong></Space>{item.detail && <Typography.Paragraph type="secondary" ellipsis={{ rows: 3, expandable: true }} style={{ margin: '6px 0 0' }}>{item.detail}</Typography.Paragraph>}</div> }))} /> : <Empty description="没有可关联的变更或事件" />}
+  </Card>
+
+  const evidencePanel = visibleEvidence.length ? <Collapse accordion={false} items={visibleEvidence.map((item: any) => ({ key: item.id, label: <Space><Tag color={item.source_type === 'prometheus' ? 'blue' : item.source_type === 'kubernetes' ? 'cyan' : item.source_type === 'changes' ? 'gold' : item.source_type === 'traces' ? 'magenta' : 'purple'}>{item.source_type}</Tag><span>{item.summary?.query_name || item.query_text}</span>{citedIds.has(item.id) && <Tag color="green">根因引用</Tag>}</Space>, children: <EvidenceCard evidence={item} /> }))} /> : <Empty description="尚无证据快照，可点击重新分析" />
+
+  const related = <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Card title="关联告警"><Table rowKey="id" size="small" pagination={false} dataSource={data.alerts || []} columns={[
+      { title: '告警名', dataIndex: 'alertname' },
+      { title: '级别', dataIndex: 'severity', width: 95, render: (value) => <StatusTag value={value} /> },
+      { title: '状态', dataIndex: 'status', width: 95, render: (value) => <StatusTag value={value} /> },
+      { title: '摘要', render: (_: unknown, row: any) => row.annotations?.summary || '-' },
+      { title: '开始', dataIndex: 'starts_at', width: 170, render: formatTime },
+      { title: '结束', dataIndex: 'ends_at', width: 170, render: formatTime },
+    ]} /></Card>
+    <Card title="分析历史"><Table rowKey="id" size="small" pagination={false} dataSource={data.analyses || []} columns={[
+      { title: 'ID', dataIndex: 'id', width: 70 },
+      { title: '状态', dataIndex: 'status', render: (value) => <StatusTag value={value} /> },
+      { title: '模型', dataIndex: 'model' },
+      { title: '开始', dataIndex: 'created_at', render: formatTime },
+      { title: '完成', dataIndex: 'finished_at', render: formatTime },
+    ]} /></Card>
+  </Space>
+
+  return <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Link to="/incidents">← 返回事件中心</Link>
+    <div className="incident-hero">
+      <div><Space wrap><OriginTags item={data} /><StatusTag value={data.severity} /><StatusTag value={data.status} /></Space><Typography.Title level={2}>{data.title}</Typography.Title><Typography.Text type="secondary">事件 #{data.id} · {data.labels?.cluster || '-'} / {data.labels?.namespace || '-'} / {data.labels?.service || '-'}</Typography.Text></div>
+      <Button type="primary" size="large" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button>
+    </div>
+    <Tabs className="incident-tabs" defaultActiveKey="overview" items={[
+      { key: 'overview', label: '诊断概览', children: overview },
+      { key: 'timeline', label: <Space><HistoryOutlined />变更时间线</Space>, children: timeline },
+      { key: 'evidence', label: `全部证据 (${visibleEvidence.length})`, children: evidencePanel },
+      { key: 'related', label: '关联与历史', children: related },
+    ]} />
+  </Space>
 }
 
 function RawAlertsPage() {
@@ -565,6 +630,61 @@ function JobsPage() {
   )
 }
 
+function ChangeEventsPage() {
+  const [namespace, setNamespace] = useState<string | undefined>()
+  const [service, setService] = useState<string | undefined>()
+  const [includeTest, setIncludeTest] = useTestDataVisibility()
+  const query = useQuery({ queryKey: ['change-events', namespace, service, includeTest], queryFn: async () => (await api.get('/change-events', { params: { namespace, service, include_test: includeTest } })).data, refetchInterval: 15000 })
+  return <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <PageHeader title="变更记录" subtitle="汇总 CI/CD 发布、镜像、版本和配置变更，为事件根因分析提供时间关联。" actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button></>} />
+    {!includeTest && (query.data?.hidden_test_count || 0) > 0 && <Alert type="info" showIcon message={`已隐藏 ${query.data.hidden_test_count} 条测试变更`} />}
+    <Card className="filter-card"><Space wrap><Input allowClear placeholder="命名空间" value={namespace} onChange={(e) => setNamespace(e.target.value || undefined)} /><Input allowClear placeholder="服务" value={service} onChange={(e) => setService(e.target.value || undefined)} /><Typography.Text type="secondary">共 {query.data?.total || 0} 条</Typography.Text></Space></Card>
+    <Card><Table rowKey="id" loading={query.isLoading} dataSource={query.data?.items || []} pagination={{ pageSize: 20 }} columns={[
+      { title: '时间', dataIndex: 'occurred_at', width: 175, render: formatTime },
+      { title: '来源', dataIndex: 'source', width: 100, render: (value) => <Tag color="blue">{value}</Tag> },
+      { title: '类型', dataIndex: 'event_type', width: 130, render: (value) => <Tag color="gold">{value}</Tag> },
+      { title: '服务', width: 200, render: (_: unknown, row: any) => `${row.namespace}/${row.service}` },
+      { title: '标题', dataIndex: 'title', ellipsis: true },
+      { title: '版本 / Commit', width: 210, render: (_: unknown, row: any) => row.version || row.commit_sha || '-' },
+      { title: '镜像', dataIndex: 'image', ellipsis: true, render: (value) => value ? <Typography.Text code>{value}</Typography.Text> : '-' },
+      { title: '执行人', dataIndex: 'actor', width: 120, render: (value) => value || '-' },
+    ]} /></Card>
+  </Space>
+}
+
+function IntegrationSettingsPage() {
+  const [form] = Form.useForm()
+  const query = useQuery({ queryKey: ['trace-settings'], queryFn: async () => (await api.get('/settings/traces')).data })
+  useEffect(() => { if (query.data) form.setFieldsValue(query.data) }, [query.data, form])
+  const save = useMutation({ mutationFn: async (values: any) => (await api.put('/settings/traces', values)).data, onSuccess: async () => { message.success('Trace 配置已保存'); await query.refetch() }, onError: (error) => message.error(apiErrorMessage(error)) })
+  const test = useMutation({ mutationFn: async (values: any) => (await api.post('/settings/traces/test', values)).data, onSuccess: async (data) => { message.success(`连接成功，${data.latency_ms} ms`); await query.refetch() }, onError: (error) => message.error(`连接失败：${apiErrorMessage(error)}`) })
+  const sample = `curl -X POST http://aiops-api.aiops-dev.svc:8000/api/v1/webhooks/deployment-events \\\n  -H 'Content-Type: application/json' \\\n  -H 'X-AIOps-Token: <从 aiops-secrets 获取>' \\\n  -d '{"source":"gitlab","event_type":"deployment","namespace":"default","service":"order-service","version":"v1.8.2","commit_sha":"abc123","image":"registry/order:v1.8.2","actor":"ci-bot","occurred_at":"2026-07-15T04:30:00Z"}'`
+  return <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <PageHeader title="集成设置" subtitle="连接 Trace 后端，并为 CI/CD 发布流水线提供标准变更事件入口。" />
+    <Row gutter={[16, 16]}>
+      <Col xs={24} xl={14}><Card title={<Space><ApartmentOutlined />分布式 Trace</Space>} loading={query.isLoading}>
+        <Form form={form} layout="vertical" initialValues={{ provider: 'tempo', enabled: false, service_tag: 'service.name' }}>
+          <Form.Item name="provider" label="后端类型"><Select options={[{ value: 'tempo', label: 'Grafana Tempo' }, { value: 'jaeger', label: 'Jaeger' }]} /></Form.Item>
+          <Form.Item name="base_url" label="Base URL" extra="示例：http://tempo.monitoring.svc:3200 或 http://jaeger-query.observability.svc:16686"><Input placeholder="http://tempo.monitoring.svc:3200" /></Form.Item>
+          <Form.Item name="service_tag" label="服务属性名"><Input placeholder="service.name" /></Form.Item>
+          <Form.Item name="enabled" label="启用 Trace 查询" valuePropName="checked"><Switch /></Form.Item>
+          <Space><Button type="primary" loading={save.isPending} onClick={async () => save.mutate(await form.validateFields())}>保存</Button><Button loading={test.isPending} onClick={async () => test.mutate(await form.validateFields())}>测试连接</Button></Space>
+        </Form>
+        <Descriptions bordered size="small" column={1} style={{ marginTop: 20 }}>
+          <Descriptions.Item label="状态"><StatusTag value={query.data?.enabled ? (query.data?.last_test_status || 'pending') : 'disabled'} /></Descriptions.Item>
+          <Descriptions.Item label="最近测试">{formatTime(query.data?.last_tested_at)}</Descriptions.Item>
+          <Descriptions.Item label="信息">{query.data?.last_test_message || '尚未配置'}</Descriptions.Item>
+        </Descriptions>
+      </Card></Col>
+      <Col xs={24} xl={10}><Card title={<Space><CodeOutlined />CI/CD 发布事件</Space>}>
+        <Alert type="info" showIcon message="通用 Webhook 已启用" description="Jenkins、GitLab CI、GitHub Actions 或其他流水线均可在发布后发送一条标准事件。系统会自动关联同 namespace/service 的开放事件并触发重新分析。" />
+        <Typography.Title level={5}>请求示例</Typography.Title><pre className="code-sample">{sample}</pre>
+        <Typography.Text type="secondary">Token 保存在 Kubernetes Secret aiops-dev/aiops-secrets 的 RELEASE_WEBHOOK_TOKEN 字段中，前端不会显示明文。</Typography.Text>
+      </Card></Col>
+    </Row>
+  </Space>
+}
+
 function ModelSettingsPage() {
   const [form] = Form.useForm()
   const client = useQueryClient()
@@ -626,7 +746,9 @@ function ModelSettingsPage() {
 function AppLayout() {
   const location = useLocation()
   const selectedKey = useMemo(() => {
-    if (location.pathname.startsWith('/settings')) return 'settings'
+    if (location.pathname.startsWith('/settings/integrations')) return 'settings-integrations'
+    if (location.pathname.startsWith('/settings')) return 'settings-model'
+    if (location.pathname.startsWith('/changes')) return 'changes'
     if (location.pathname.startsWith('/deliveries')) return 'deliveries'
     if (location.pathname.startsWith('/jobs')) return 'jobs'
     if (location.pathname.startsWith('/alerts')) return 'alerts'
@@ -637,14 +759,18 @@ function AppLayout() {
     <Layout className="shell">
       <Layout.Sider className="app-sider" width={238} breakpoint="lg" collapsedWidth={0}>
         <div className="brand"><DeploymentUnitOutlined /><span>AIOps Console</span></div>
-        <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} items={[
+        <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['settings']} items={[
           { key: 'dashboard', icon: <DashboardOutlined />, label: <Link to="/dashboard">运维总览</Link> },
           { key: 'incidents', icon: <AlertOutlined />, label: <Link to="/incidents">事件中心</Link> },
           { key: 'alerts', icon: <BellOutlined />, label: <Link to="/alerts">原始告警</Link> },
+          { key: 'changes', icon: <BranchesOutlined />, label: <Link to="/changes">变更记录</Link> },
           { key: 'deliveries', icon: <CloudServerOutlined />, label: <Link to="/deliveries">Webhook 投递</Link> },
           { key: 'jobs', icon: <HistoryOutlined />, label: <Link to="/jobs">分析任务</Link> },
           { type: 'divider' },
-          { key: 'settings', icon: <SettingOutlined />, label: <Link to="/settings/model">设置</Link> },
+          { key: 'settings', icon: <SettingOutlined />, label: '设置', children: [
+            { key: 'settings-model', label: <Link to="/settings/model">模型设置</Link> },
+            { key: 'settings-integrations', label: <Link to="/settings/integrations">集成设置</Link> },
+          ] },
         ]} />
       </Layout.Sider>
       <Layout className="main-layout">
@@ -662,9 +788,11 @@ function AppLayout() {
             <Route path="/incidents" element={<IncidentsPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
             <Route path="/alerts" element={<RawAlertsPage />} />
+            <Route path="/changes" element={<ChangeEventsPage />} />
             <Route path="/deliveries" element={<DeliveriesPage />} />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/settings/model" element={<ModelSettingsPage />} />
+            <Route path="/settings/integrations" element={<IntegrationSettingsPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Layout.Content>
