@@ -251,6 +251,7 @@ async def resolve_target_context(
         pod_name=actual_name,
         pod_uid=actual_uid,
         container_name=container_name,
+        service_name=str(labels.get("service") or labels.get("app") or workload_name or "") or None,
         incident_time=incident.first_seen_at,
         window_start=incident.first_seen_at - timedelta(minutes=15),
         window_end=incident.first_seen_at + timedelta(minutes=30),

@@ -38,6 +38,10 @@ class EmptyArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class FlexibleArguments(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
 class ScopeArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     scope: str = "both"
@@ -78,6 +82,29 @@ class FakeOomTool:
             },
             completeness=Completeness.COMPLETE,
             summary="OOMKilled",
+        )
+
+
+
+
+class SafeNotFoundTool:
+    version = "1.0.0"
+    cost_units = 1
+    arguments_model = FlexibleArguments
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls = 0
+
+    async def execute(self, target: TargetContext, arguments: BaseModel) -> ToolObservation:
+        self.calls += 1
+        return ToolObservation(
+            status=ToolStatus.NOT_FOUND,
+            data={"capability_gap": self.name},
+            raw_output={"status": "success"},
+            completeness=Completeness.COMPLETE,
+            summary=f"{self.name} no data",
+            error_code=f"{self.name.upper()}_NO_DATA",
         )
 
 
@@ -224,6 +251,14 @@ class InvestigationPersistenceTests(unittest.IsolatedAsyncioTestCase):
         fake_tool = FakeOomTool()
         registry = ToolRegistry()
         registry.register(fake_tool, parsers=[parse_oom_killed_findings])
+        supplemental = [
+            SafeNotFoundTool("get_memory_usage_vs_limit"),
+            SafeNotFoundTool("get_container_restart_history"),
+            SafeNotFoundTool("get_recent_rollouts"),
+            SafeNotFoundTool("search_container_logs"),
+        ]
+        for item in supplemental:
+            registry.register(item)
         with patch("app.investigation.service.resolve_target_context", new=AsyncMock(return_value=resolution)), patch(
             "app.investigation.service.build_default_registry",
             return_value=registry,
@@ -241,7 +276,7 @@ class InvestigationPersistenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(model_settings.enabled)
             self.assertEqual(run.status, "COMPLETED_PARTIAL")
             self.assertEqual(run.target_context_json["pod_uid"], "pod-uid-1")
-            self.assertEqual(run.budget_usage_json["tool_calls_used"], 1)
+            self.assertEqual(run.budget_usage_json["tool_calls_used"], 5)
             self.assertEqual(tool.status, "FOUND")
             self.assertTrue(tool.raw_artifact_hash)
             self.assertEqual(finding.tool_execution_id, tool.id)

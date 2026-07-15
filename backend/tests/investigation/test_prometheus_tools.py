@@ -112,8 +112,7 @@ class FakePrometheusClient:
         if "container_memory_max_usage_bytes" in query:
             return matrix(self._metric(), [(ts, 31.7 * 1024 * 1024) for ts in timestamps])
         if "container_cpu_usage_seconds_total" in query:
-            incident_start = target.incident_time - timedelta(minutes=10)
-            return matrix(self._metric(), [(ts, 0.01 if ts < incident_start.timestamp() else 0.19) for ts in timestamps])
+            return matrix(self._metric(), [(ts, 0.01 if ts < target.incident_time.timestamp() else 0.19) for ts in timestamps])
         if "container_cpu_cfs_throttled_periods_total" in query:
             return matrix(self._metric(), [(ts, 0.48) for ts in timestamps])
         if "container_cpu_cfs_throttled_seconds_total" in query:
@@ -138,8 +137,9 @@ class LatePodPrometheusClient(FakePrometheusClient):
     async def query_range(self, *, query: str, target: TargetContext, start: datetime, end: datetime, step_seconds: int):
         self.calls.append(query)
         if "container_cpu_usage_seconds_total" in query:
-            # Pod appears late in the TargetContext window: first half idle, second half busy.
-            first = target.incident_time - timedelta(minutes=3)
+            # Pod appears only after incident_time, so the anchored split has no baseline
+            # and must use a bounded split of this same UID series.
+            first = target.incident_time + timedelta(seconds=step_seconds)
             values = []
             for index in range(16):
                 timestamp = (first + timedelta(seconds=index * step_seconds)).timestamp()
@@ -226,6 +226,47 @@ class PrometheusClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, "PROMETHEUS_TIMEOUT")
         self.assertTrue(caught.exception.retryable)
 
+    async def test_application_query_requires_registered_metric_and_scope(self):
+        start = datetime.now(UTC) - timedelta(minutes=5)
+        end = datetime.now(UTC)
+        client = PrometheusReadClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, request=request, json=empty_matrix()))
+        )
+        payload = await client.query_range_application(
+            query='sum(rate(http_requests_total{namespace="production",service="payment-api"}[2m]))',
+            namespace="production",
+            service="payment-api",
+            allowed_metrics={"http_requests_total"},
+            start=start,
+            end=end,
+            step_seconds=30,
+        )
+        self.assertEqual(payload["status"], "success")
+
+        with self.assertRaises(PrometheusReadError) as unknown_metric:
+            await client.query_range_application(
+                query='sum(rate(process_cpu_seconds_total{namespace="production",service="payment-api"}[2m]))',
+                namespace="production",
+                service="payment-api",
+                allowed_metrics={"http_requests_total"},
+                start=start,
+                end=end,
+                step_seconds=30,
+            )
+        self.assertEqual(unknown_metric.exception.code, "PROMETHEUS_METRIC_NOT_ALLOWED")
+
+        with self.assertRaises(PrometheusReadError) as missing_scope:
+            await client.query_range_application(
+                query='sum(rate(http_requests_total{namespace="production"}[2m]))',
+                namespace="production",
+                service="payment-api",
+                allowed_metrics={"http_requests_total"},
+                start=start,
+                end=end,
+                step_seconds=30,
+            )
+        self.assertEqual(missing_scope.exception.code, "PROMETHEUS_SCOPE_VIOLATION")
+
     async def test_high_cardinality_response_is_rejected(self):
         target = make_target()
         query = 'container_memory_working_set_bytes{namespace="production",pod="payment-api-abc",container="main"}'
@@ -287,6 +328,15 @@ class PrometheusToolTests(unittest.IsolatedAsyncioTestCase):
         throttle_types = {item.finding_type for item in parse_cpu_throttling_findings(as_result(throttling_observation, target, throttling_tool.name), target)}
         self.assertEqual(throttle_types, {"cpu_throttling_sustained"})
 
+
+    async def test_long_running_cpu_anomaly_keeps_incident_time_baseline(self):
+        target = make_target()
+        target = target.model_copy(update={"incident_time": datetime.now(UTC) - timedelta(minutes=12), "window_start": datetime.now(UTC) - timedelta(minutes=27), "window_end": datetime.now(UTC) + timedelta(minutes=18)})
+        client = FakePrometheusClient(target)
+        tool = GetCPUUsageVsRequestLimitTool(client)
+        observation = await tool.execute(target, CPUUsageVsRequestLimitInput(baseline_minutes=30, spike_window_minutes=10, step_seconds=15))
+        self.assertEqual(observation.data["baseline_method"], "incident_time_anchored")
+        self.assertTrue(observation.data["spike_detected"])
 
     async def test_late_created_pod_uses_same_uid_series_split(self):
         target = make_target()

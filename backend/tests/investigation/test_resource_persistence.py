@@ -12,6 +12,13 @@ from app.db import SessionLocal, engine
 from app.investigation.contracts import TargetContext, ToolObservation
 from app.investigation.enums import Completeness, ResolutionQuality, ToolStatus
 from app.investigation.findings.oom import parse_oom_killed_findings
+from app.investigation.findings.gate3 import (
+    parse_log_findings,
+    parse_red_findings,
+    parse_replica_cpu_findings,
+    parse_restart_findings,
+    parse_rollout_findings,
+)
 from app.investigation.findings.resources import (
     parse_cpu_throttling_findings,
     parse_cpu_usage_findings,
@@ -63,6 +70,7 @@ def target() -> TargetContext:
         pod_name="payment-api-abc",
         pod_uid="pod-uid-1",
         container_name="main",
+        service_name="payment-api",
         incident_time=incident_time,
         window_start=incident_time - timedelta(minutes=15),
         window_end=incident_time + timedelta(minutes=30),
@@ -167,9 +175,33 @@ class ResourcePersistenceTests(unittest.IsolatedAsyncioTestCase):
             completeness=Completeness.COMPLETE,
             summary="near limit",
         ))
+        restart = FakeTool("get_container_restart_history", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"current_restart_count": 4, "window_restart_delta": 3, "restart_event_count": 3,
+                  "restart_events": [{"time": "2026-07-15T10:32:18Z"}], "repeated": True},
+            raw_output={"status": "success"}, completeness=Completeness.COMPLETE, summary="restarts",
+        ))
+        rollout = FakeTool("get_recent_rollouts", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"rollout_preceded_incident": True, "minutes_before_incident": 7,
+                  "nearest_rollout_before_incident": "2026-07-15T10:25:00Z",
+                  "recent_replicaset_count": 1, "recent_change_count": 1,
+                  "revision_changed": True, "previous_revision": 1, "current_revision": 2,
+                  "image_changed": True, "previous_images": ["v1"], "current_images": ["v2"],
+                  "no_recent_rollout": False},
+            raw_output={"status": "success"}, completeness=Completeness.COMPLETE, summary="rollout",
+        ))
+        logs = FakeTool("search_container_logs", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"category_counts": {"oom": 1, "runtime_error": 1}, "prompt_injection_redacted_count": 1},
+            raw_output={"untrusted_input": True}, completeness=Completeness.COMPLETE, summary="logs",
+        ))
         registry = ToolRegistry()
         registry.register(termination, parsers=[parse_oom_killed_findings])
         registry.register(memory, parsers=[parse_memory_usage_findings])
+        registry.register(restart, parsers=[parse_restart_findings])
+        registry.register(rollout, parsers=[parse_rollout_findings])
+        registry.register(logs, parsers=[parse_log_findings])
         resolution = ResolutionOutcome(ToolStatus.FOUND, ctx, "resolved", {})
         with patch("app.investigation.service.resolve_target_context", new=AsyncMock(return_value=resolution)), patch(
             "app.investigation.service.build_default_registry", return_value=registry
@@ -183,15 +215,20 @@ class ResourcePersistenceTests(unittest.IsolatedAsyncioTestCase):
             diagnosis = await session.get(InvestigationDiagnosisResult, run_id)
             self.assertEqual(run.engine, "deterministic_oom_v2")
             self.assertEqual(run.status, "COMPLETED_PARTIAL")
-            self.assertEqual(len(tools), 2)
+            self.assertEqual(len(tools), 5)
             types = {item.finding_type for item in findings}
             self.assertIn("container_oom_killed", types)
             self.assertIn("memory_limit_reached", types)
+            self.assertIn("container_repeatedly_restarted", types)
+            self.assertIn("rollout_preceded_incident", types)
+            self.assertIn("revision_changed", types)
+            self.assertIn("image_changed", types)
+            self.assertIn("oom_log_observed", types)
+            self.assertNotIn("rollout_caused_incident", types)
             self.assertEqual(set(diagnosis.fact_refs_json), {item.id for item in findings})
             self.assertTrue(all(tool.model_visible_output_json["finding_ids"] for tool in tools))
-            self.assertEqual(run.budget_usage_json["tool_calls_used"], 2)
-            self.assertEqual(termination.calls, 1)
-            self.assertEqual(memory.calls, 1)
+            self.assertEqual(run.budget_usage_json["tool_calls_used"], 5)
+            self.assertEqual([termination.calls, memory.calls, restart.calls, rollout.calls, logs.calls], [1, 1, 1, 1, 1])
 
     async def test_cpu_run_persists_spike_and_throttling_findings(self) -> None:
         incident_id = await self._incident(
@@ -234,9 +271,52 @@ class ResourcePersistenceTests(unittest.IsolatedAsyncioTestCase):
             completeness=Completeness.COMPLETE,
             summary="throttled",
         ))
+        restart = FakeTool("get_container_restart_history", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"current_restart_count": 0, "window_restart_delta": 0, "restart_event_count": 0,
+                  "restart_events": [], "repeated": False},
+            raw_output={"status": "success"}, completeness=Completeness.COMPLETE, summary="stable",
+        ))
+        rollout = FakeTool("get_recent_rollouts", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"rollout_preceded_incident": True, "minutes_before_incident": 7,
+                  "nearest_rollout_before_incident": "2026-07-15T10:25:00Z",
+                  "recent_replicaset_count": 1, "recent_change_count": 1,
+                  "revision_changed": True, "previous_revision": 1, "current_revision": 2,
+                  "image_changed": False, "no_recent_rollout": False},
+            raw_output={"status": "success"}, completeness=Completeness.COMPLETE, summary="rollout",
+        ))
+        logs = FakeTool("search_container_logs", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"category_counts": {"runtime_error": 1, "cpu_hot_loop_hint": 1}, "prompt_injection_redacted_count": 1},
+            raw_output={"untrusted_input": True}, completeness=Completeness.COMPLETE, summary="logs",
+        ))
+        replicas = FakeTool("compare_cpu_across_replicas", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"replica_count": 3, "anomalous_pods": ["payment-api-abc"],
+                  "median_incident_cpu_cores": 0.1, "max_incident_cpu_cores": 0.6,
+                  "single_replica_anomaly": True, "subset_replicas_anomaly": False,
+                  "all_replicas_increased": False, "new_revision_cpu_higher": True,
+                  "latest_revision": 2, "revision_means": {"1": 0.1, "2": 0.4}},
+            raw_output={"status": "success"}, completeness=Completeness.COMPLETE, summary="replicas",
+        ))
+        red = FakeTool("get_application_red_metrics", ToolObservation(
+            status=ToolStatus.FOUND,
+            data={"request_rate_stable": True, "request_rate_increased": False,
+                  "error_rate_increased": True, "latency_increased": True,
+                  "signals": {"request_rate": {"baseline_mean": 10, "incident_mean": 10.2},
+                              "error_rate": {"baseline_mean": 0.003, "incident_mean": 0.05},
+                              "latency": {"baseline_mean": 0.18, "incident_mean": 1.2}}},
+            raw_output={"status": "success"}, completeness=Completeness.COMPLETE, summary="red",
+        ))
         registry = ToolRegistry()
         registry.register(cpu, parsers=[parse_cpu_usage_findings])
         registry.register(throttling, parsers=[parse_cpu_throttling_findings])
+        registry.register(restart, parsers=[parse_restart_findings])
+        registry.register(rollout, parsers=[parse_rollout_findings])
+        registry.register(logs, parsers=[parse_log_findings])
+        registry.register(replicas, parsers=[parse_replica_cpu_findings])
+        registry.register(red, parsers=[parse_red_findings])
         resolution = ResolutionOutcome(ToolStatus.FOUND, ctx, "resolved", {})
         with patch("app.investigation.service.resolve_target_context", new=AsyncMock(return_value=resolution)), patch(
             "app.investigation.service.build_default_registry", return_value=registry
@@ -249,16 +329,26 @@ class ResourcePersistenceTests(unittest.IsolatedAsyncioTestCase):
             findings = list(await session.scalars(select(InvestigationFinding).where(InvestigationFinding.analysis_run_id == run_id)))
             diagnosis = await session.get(InvestigationDiagnosisResult, run_id)
             self.assertEqual(run.engine, "deterministic_cpu_v1")
-            self.assertEqual(len(tools), 2)
+            self.assertEqual(len(tools), 7)
             types = {item.finding_type for item in findings}
             self.assertIn("container_cpu_spike", types)
             self.assertIn("cpu_request_saturated", types)
             self.assertIn("cpu_near_limit", types)
             self.assertIn("cpu_throttling_sustained", types)
+            self.assertIn("container_restart_stable", types)
+            self.assertIn("rollout_preceded_incident", types)
+            self.assertIn("runtime_error_log_observed", types)
+            self.assertIn("single_replica_cpu_anomaly", types)
+            self.assertIn("new_revision_cpu_higher", types)
+            self.assertIn("request_rate_stable", types)
+            self.assertIn("error_rate_increased", types)
+            self.assertIn("latency_increased", types)
+            self.assertNotIn("confirmed_root_cause", types)
             self.assertEqual(set(diagnosis.fact_refs_json), {item.id for item in findings})
+            self.assertTrue(all(tool.model_visible_output_json["finding_ids"] for tool in tools))
             self.assertIn("CPU Spike", diagnosis.summary)
             self.assertIn("throttling", diagnosis.summary)
-            self.assertEqual(run.budget_usage_json["tool_calls_used"], 2)
+            self.assertEqual(run.budget_usage_json["tool_calls_used"], 7)
             model = await session.get(ModelSettings, 1)
             self.assertFalse(model.enabled)
 

@@ -528,14 +528,40 @@ function trustedFindingTitle(finding: any) {
     case 'cpu_near_limit': return `CPU 峰值接近 limit：${formatRatio(value.peak_limit_ratio)}`
     case 'cpu_throttling_sustained': return `观察到持续 CPU throttling：峰值 periods 比例 ${formatRatio(value.period_ratio_peak)}`
     case 'cpu_throttling_observed': return `观察到 CPU throttling：峰值 periods 比例 ${formatRatio(value.period_ratio_peak)}`
+    case 'container_restart_increased': return `调查窗口内容器重启增加 ${value.window_restart_delta ?? '-'} 次`
+    case 'container_repeatedly_restarted': return `容器持续重启：窗口内增加 ${value.window_restart_delta ?? '-'} 次`
+    case 'container_restart_stable': return '完整采样窗口内未观察到重启计数增加'
+    case 'rollout_preceded_incident': return `发布发生在事件前 ${Number(value.minutes_before_incident || 0).toFixed(1)} 分钟`
+    case 'revision_changed': return `Deployment Revision ${value.previous_revision ?? '-'} → ${value.current_revision ?? '-'}`
+    case 'image_changed': return `容器镜像发生变化：${(value.previous_images || []).join(', ') || '-'} → ${(value.current_images || []).join(', ') || '-'}`
+    case 'no_recent_rollout': return '调查窗口内未观察到 Deployment rollout 或 CI/CD 发布'
+    case 'oom_log_observed': return `日志中观察到 OOM 相关文本 ${value.matched_line_count ?? 0} 条`
+    case 'allocation_failure_log_observed': return `日志中观察到内存分配失败文本 ${value.matched_line_count ?? 0} 条`
+    case 'process_termination_log_observed': return `日志中观察到进程终止文本 ${value.matched_line_count ?? 0} 条`
+    case 'runtime_error_log_observed': return `日志中观察到运行时异常文本 ${value.matched_line_count ?? 0} 条`
+    case 'cpu_hot_loop_hint_log_observed': return `日志中观察到 CPU 忙循环提示文本 ${value.matched_line_count ?? 0} 条`
+    case 'gc_pressure_log_observed': return `日志中观察到 GC 压力文本 ${value.matched_line_count ?? 0} 条`
+    case 'request_timeout_log_observed': return `日志中观察到请求超时文本 ${value.matched_line_count ?? 0} 条`
+    case 'single_replica_cpu_anomaly': return `CPU 异常仅出现在单个副本：${(value.anomalous_pods || []).join(', ') || '-'}`
+    case 'subset_replicas_cpu_anomaly': return `CPU 异常出现在部分副本：${(value.anomalous_pods || []).join(', ') || '-'}`
+    case 'all_replicas_cpu_increased': return '同一 Workload 的全部可比较副本 CPU 均明显升高'
+    case 'new_revision_cpu_higher': return `新 Revision ${value.latest_revision ?? '-'} 的 CPU 明显高于旧 Revision`
+    case 'request_rate_increased': return `应用请求率由 ${Number(value.baseline_mean || 0).toFixed(2)} 增至 ${Number(value.incident_mean || 0).toFixed(2)} req/s`
+    case 'request_rate_stable': return `应用请求率保持稳定：${Number(value.incident_mean || 0).toFixed(2)} req/s`
+    case 'error_rate_increased': return `应用错误率由 ${formatRatio(value.baseline_mean)} 增至 ${formatRatio(value.incident_mean)}`
+    case 'latency_increased': return `应用 P99 延迟由 ${Number(value.baseline_mean || 0).toFixed(3)}s 增至 ${Number(value.incident_mean || 0).toFixed(3)}s`
     default: return finding.finding_type
   }
 }
 
 function trustedFindingSource(finding: any) {
-  return finding.finding_type === 'container_oom_killed'
-    ? 'Kubernetes ContainerStatus'
-    : 'Prometheus 受控指标工具'
+  if (finding.finding_type === 'container_oom_killed') return 'Kubernetes ContainerStatus'
+  if (finding.finding_type.startsWith('container_restart')) return 'Kubernetes ContainerStatus + Prometheus restart counter'
+  if (['rollout_preceded_incident', 'revision_changed', 'image_changed', 'no_recent_rollout'].includes(finding.finding_type)) return 'Kubernetes Deployment / ReplicaSet + CI/CD 变更记录'
+  if (finding.finding_type.endsWith('_log_observed')) return 'Loki / Kubernetes Pod Logs（不可信文本）'
+  if (['single_replica_cpu_anomaly', 'subset_replicas_cpu_anomaly', 'all_replicas_cpu_increased', 'new_revision_cpu_higher'].includes(finding.finding_type)) return 'Kubernetes Workload UID + Prometheus 副本指标'
+  if (['request_rate_increased', 'request_rate_stable', 'error_rate_increased', 'latency_increased'].includes(finding.finding_type)) return 'Prometheus 应用 RED 指标 Profile'
+  return 'Prometheus 受控指标工具'
 }
 
 
@@ -575,6 +601,7 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
         <Descriptions.Item label="Pod">{target.pod_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="Pod UID"><Typography.Text code copyable>{target.pod_uid || '-'}</Typography.Text></Descriptions.Item>
         <Descriptions.Item label="Container">{target.container_name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="Service">{target.service_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="Workload">{target.workload_kind ? `${target.workload_kind}/${target.workload_name || '-'}` : '-'}</Descriptions.Item>
         <Descriptions.Item label="Workload UID"><Typography.Text code copyable>{target.workload_uid || '-'}</Typography.Text></Descriptions.Item>
         <Descriptions.Item label="定位方式">{target.resolution_method || '-'}</Descriptions.Item>
@@ -592,7 +619,7 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
         <Card title="确定性事实" style={{ height: '100%' }}>
           {findings.length ? <List dataSource={findings} renderItem={(finding: any) => <List.Item>
             <List.Item.Meta
-              title={<Space wrap><Tag color="green">{finding.finding_type}</Tag><strong>{trustedFindingTitle(finding)}</strong></Space>}
+              title={<Space wrap><Tag color={finding.polarity === 'negative' ? 'default' : 'green'}>{finding.finding_type}</Tag><strong>{trustedFindingTitle(finding)}</strong></Space>}
               description={<Space direction="vertical" size={3}>
                 <span>发生时间：{formatTime(finding.event_time)}</span>
                 <span>确认来源：{trustedFindingSource(finding)} · ToolExecution #{finding.tool_execution_id}</span>

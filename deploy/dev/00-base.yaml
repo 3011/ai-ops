@@ -38,9 +38,9 @@ data:
   INVESTIGATION_RAW_JSON_MAX_BYTES: "65536"
   INVESTIGATION_COLLECTION_MAX_ITEMS: "200"
   INVESTIGATION_STRING_MAX_CHARS: "4000"
-  APP_VERSION: "0.9.0-dev.1"
-  APP_RELEASE_TITLE: "可信 Prometheus 工具与 CPU 确定性闭环"
+  APP_VERSION: "0.9.0-dev.2"
+  APP_RELEASE_TITLE: "应用与关联可信工具"
   APP_RELEASE_SUMMARY: "新增受 TargetContext 约束的内存、CPU 和 throttling 工具，并建立无 Agent 的 CPU Spike 确定性调查。"
-  APP_RELEASE_CHANGES: '["PrometheusReadClient 统一错误与范围限制","get_memory_usage_vs_limit","get_cpu_usage_vs_request_limit","get_cpu_throttling","内存与 CPU 确定性 Finding","CPU Spike 无 Agent 调查链路","真实 OOM 与 CPU 压测场景"]'
+  APP_RELEASE_CHANGES: '["容器重启历史","Deployment rollout 与 CI/CD 时间关联","受控日志类别与 Prompt Injection 隔离","Workload UID 副本 CPU 比较","有限 Profile 应用 RED 指标","完整 5/7 工具无 Agent 固定计划","Gate 3 多副本真实场景"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

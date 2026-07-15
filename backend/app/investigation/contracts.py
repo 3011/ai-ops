@@ -22,6 +22,7 @@ class TargetRef(BaseModel):
     pod_name: str
     pod_uid: str
     container_name: str
+    service_name: str | None = None
     workload_kind: str | None = None
     workload_name: str | None = None
     workload_uid: str | None = None
@@ -59,6 +60,7 @@ class TargetContext(TargetRef):
             "pod_name": self.pod_name,
             "pod_uid": self.pod_uid,
             "container_name": self.container_name,
+            "service_name": self.service_name,
             "workload_uid": self.workload_uid,
             "resolution_method": self.resolution_method,
             "resolution_quality": self.resolution_quality.value,

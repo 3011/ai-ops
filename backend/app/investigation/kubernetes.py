@@ -131,3 +131,49 @@ class KubernetesReadClient:
         return await self.get_json(
             f"/apis/apps/v1/namespaces/{quote(namespace, safe='')}/deployments/{quote(name, safe='')}"
         )
+
+    async def list_replicasets(self, namespace: str, *, label_selector: str | None = None) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": 500}
+        if label_selector:
+            params["labelSelector"] = label_selector
+        payload = await self.get_json(
+            f"/apis/apps/v1/namespaces/{quote(namespace, safe='')}/replicasets",
+            params,
+        )
+        return list(payload.get("items") or [])
+
+    async def read_pod_log(
+        self,
+        namespace: str,
+        pod_name: str,
+        *,
+        container: str,
+        previous: bool,
+        tail_lines: int,
+        limit_bytes: int,
+        since_seconds: int,
+    ) -> str:
+        params = {
+            "container": container,
+            "previous": str(previous).lower(),
+            "tailLines": max(1, min(tail_lines, 500)),
+            "limitBytes": max(1024, min(limit_bytes, 262144)),
+            "sinceSeconds": max(60, min(since_seconds, 14400)),
+            "timestamps": "true",
+        }
+        path = f"/api/v1/namespaces/{quote(namespace, safe='')}/pods/{quote(pod_name, safe='')}/log"
+        try:
+            async with httpx.AsyncClient(
+                base_url=K8S_API,
+                headers=self._headers,
+                verify=self._verify,
+                timeout=self._timeout,
+            ) as client:
+                response = await client.get(path, params=params)
+        except httpx.TimeoutException as exc:
+            raise KubernetesReadError(ToolStatus.UNAVAILABLE, "KUBERNETES_TIMEOUT", str(exc) or "Kubernetes timeout", True) from exc
+        except httpx.RequestError as exc:
+            raise KubernetesReadError(ToolStatus.UNAVAILABLE, "KUBERNETES_CONNECTION_ERROR", str(exc), True) from exc
+        if response.status_code >= 400:
+            raise classify_http_error(response.status_code, response.text[:1000])
+        return response.text

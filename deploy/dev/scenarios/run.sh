@@ -6,6 +6,7 @@ kubectl apply -f "$ROOT/deploy/dev/scenarios/oom.yaml"
 kubectl apply -f "$ROOT/deploy/dev/scenarios/oom-sampled.yaml"
 kubectl apply -f "$ROOT/deploy/dev/scenarios/cpu-spike.yaml"
 bash "$ROOT/deploy/dev/scenarios/rollout_scenario.sh"
+bash "$ROOT/deploy/dev/scenarios/gate3_scenario.sh"
 python3 "$ROOT/deploy/dev/scenarios/manual_scenarios.py" fire
 cat <<'EOF'
 Scenarios started. Prometheus, Alertmanager and AI analysis may need several minutes.

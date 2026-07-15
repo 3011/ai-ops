@@ -7,7 +7,7 @@ import subprocess
 import sys
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
-API = "http://127.0.0.1:30801/api/v1"
+API = os.getenv("AIOPS_API", "http://127.0.0.1:30801/api/v1")
 COOKIE_JAR = http.cookiejar.CookieJar()
 OPENER = build_opener(HTTPCookieProcessor(COOKIE_JAR))
 
@@ -100,11 +100,11 @@ if oom_row:
         and bool(oom_finding)
         and oom_finding.get("tool_execution_id") in tool_ids
         and oom_finding.get("confirmation_rule") == "container_oom_killed_v1"
-        and (trusted or {}).get("budget_usage", {}).get("tool_calls_used") == 2
-        and (trusted or {}).get("budget_usage", {}).get("total_cost_units_used") == 4
-        and oom_finding.get("id") in ((tools[0].get("result_summary") or {}).get("finding_ids") or [])
-        and {item.get("tool_name") for item in tools} == {"get_container_termination_status", "get_memory_usage_vs_limit"}
-        and any((item.get("structured_output") or {}).get("peak_limit_ratio") is not None for item in tools)
+        and (trusted or {}).get("budget_usage", {}).get("tool_calls_used") == len(tools)
+        and (trusted or {}).get("budget_usage", {}).get("total_cost_units_used") == sum(int(item.get("cost_units") or 0) for item in tools)
+        and oom_finding.get("id") in ((next(item for item in tools if item.get("tool_name") == "get_container_termination_status").get("result_summary") or {}).get("finding_ids") or [])
+        and {"get_container_termination_status", "get_memory_usage_vs_limit"}.issubset({item.get("tool_name") for item in tools})
+        and any((item.get("structured_output") or {}).get("peak_limit_ratio") is not None for item in tools if item.get("tool_name") == "get_memory_usage_vs_limit")
         and all(bool(item.get("raw_artifact_hash")) for item in tools),
         f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
@@ -152,13 +152,71 @@ if cpu_row:
         and (trusted.get("target_context") or {}).get("resolution_quality") == "high"
         and "container_cpu_spike" in types
         and "cpu_request_saturated" in types
-        and {"get_cpu_usage_vs_request_limit", "get_cpu_throttling"}.issubset(tool_names)
-        and trusted.get("budget_usage", {}).get("tool_calls_used") == 2
+        and {
+            "get_cpu_usage_vs_request_limit", "get_cpu_throttling",
+            "get_container_restart_history", "get_recent_rollouts", "search_container_logs",
+            "compare_cpu_across_replicas", "get_application_red_metrics",
+        }.issubset(tool_names)
+        and trusted.get("budget_usage", {}).get("tool_calls_used") == 7
+        and trusted.get("budget_usage", {}).get("total_cost_units_used") == 23
         and all(bool(item.get("raw_artifact_hash")) for item in tools),
         f"trusted CPU: run={(trusted or {}).get('status')} findings={sorted(types)} tools={sorted(tool_names)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
 else:
     checks.append((False, "missing scenario: trusted CPU Spike"))
+
+
+gate3_row = find("Gate 3 多副本应用 CPU Spike")
+if gate3_row:
+    detail = get(f"/incidents/{gate3_row['id']}")
+    trusted = next((item for item in (detail.get("trusted_investigations") or []) if item.get("engine") == "deterministic_cpu_v1"), None)
+    findings = (trusted or {}).get("findings") or []
+    tools = (trusted or {}).get("tool_executions") or []
+    types = {item.get("finding_type") for item in findings}
+    tool_names = {item.get("tool_name") for item in tools}
+    by_name = {item.get("tool_name"): item for item in tools}
+    fact_refs = set(((trusted or {}).get("diagnosis") or {}).get("fact_refs") or [])
+    required_tools = {
+        "get_cpu_usage_vs_request_limit", "get_cpu_throttling",
+        "get_container_restart_history", "get_recent_rollouts", "search_container_logs",
+        "compare_cpu_across_replicas", "get_application_red_metrics",
+    }
+    required_findings = {
+        "container_cpu_spike", "cpu_throttling_sustained", "container_restart_increased",
+        "rollout_preceded_incident", "revision_changed",
+        "runtime_error_log_observed", "cpu_hot_loop_hint_log_observed", "request_timeout_log_observed",
+        "single_replica_cpu_anomaly", "error_rate_increased", "latency_increased",
+    }
+    log_data = (by_name.get("search_container_logs") or {}).get("structured_output") or {}
+    restart_data = (by_name.get("get_container_restart_history") or {}).get("structured_output") or {}
+    rollout_data = (by_name.get("get_recent_rollouts") or {}).get("structured_output") or {}
+    replica_data = (by_name.get("compare_cpu_across_replicas") or {}).get("structured_output") or {}
+    red_data = (by_name.get("get_application_red_metrics") or {}).get("structured_output") or {}
+    checks.append((
+        bool(trusted)
+        and trusted.get("status") == "COMPLETED_PARTIAL"
+        and (trusted.get("target_context") or {}).get("resolution_quality") == "high"
+        and required_tools == tool_names
+        and required_findings.issubset(types)
+        and trusted.get("budget_usage", {}).get("tool_calls_used") == 7
+        and trusted.get("budget_usage", {}).get("total_cost_units_used") == 23
+        and restart_data.get("window_restart_delta", 0) >= 1
+        and rollout_data.get("revision_changed") is True
+        and rollout_data.get("rollout_preceded_incident") is True
+        and rollout_data.get("recent_change_count", 0) >= 1
+        and log_data.get("prompt_injection_redacted_count", 0) >= 1
+        and replica_data.get("replica_count", 0) >= 3
+        and replica_data.get("single_replica_anomaly") is True
+        and len(replica_data.get("anomalous_pods") or []) == 1
+        and isinstance(((red_data.get("signals") or {}).get("request_rate") or {}).get("incident_mean"), (int, float))
+        and red_data.get("error_rate_increased") is True
+        and red_data.get("latency_increased") is True
+        and {item.get("id") for item in findings}.issubset(fact_refs)
+        and all(bool(item.get("raw_artifact_hash")) for item in tools),
+        f"trusted Gate 3: run={(trusted or {}).get('status')} tools={sorted(tool_names)} findings={sorted(types)} restart={restart_data.get('window_restart_delta')} rollout={rollout_data.get('revision_changed')} injection={log_data.get('prompt_injection_redacted_count')} replicas={replica_data.get('replica_count')}/{replica_data.get('anomalous_replica_count')} red={red_data.get('profile')}",
+    ))
+else:
+    checks.append((False, "missing scenario: trusted Gate 3 application correlation"))
 
 
 http_row = find("HTTP 5xx")

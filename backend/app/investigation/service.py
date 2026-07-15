@@ -26,7 +26,7 @@ from app.models import (
 
 OOM_ENGINE = "deterministic_oom_v2"
 CPU_ENGINE = "deterministic_cpu_v1"
-ENGINE_VERSION = "0.9.0-dev.1"
+ENGINE_VERSION = "0.9.0-dev.2"
 _OOM_TOKEN = re.compile(r"\b(?:oomkilled|oom[\s_-]?kill(?:ed)?|out[\s_-]+of[\s_-]+memory)\b", re.IGNORECASE)
 _OOM_ALERTNAMES = {
     "containeroomkilled",
@@ -217,7 +217,7 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
             return None
 
         started_at = utcnow()
-        budget = InvestigationBudget(deadline_at=started_at + timedelta(minutes=2))
+        budget = InvestigationBudget(max_steps=10, max_tool_calls=10, max_total_cost_units=30, max_same_tool_calls=3, max_no_progress_rounds=10, deadline_at=started_at + timedelta(minutes=3))
         ledger = BudgetLedger(budget)
         engine = OOM_ENGINE if mode == "oom" else CPU_ENGINE
         run = InvestigationAnalysisRun(
@@ -271,9 +271,17 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
         runtime = ToolRuntime(session, registry=registry, budget=ledger)
         plan: list[tuple[str, dict[str, Any]]]
         if mode == "oom":
-            plan = [("get_container_termination_status", {"scope": "both"})]
-            if registry.get("get_memory_usage_vs_limit") is not None:
-                plan.append(("get_memory_usage_vs_limit", {"step_seconds": 15}))
+            plan = [
+                ("get_container_termination_status", {"scope": "both"}),
+                ("get_memory_usage_vs_limit", {"step_seconds": 15}),
+                ("get_container_restart_history", {"window_minutes": 30, "step_seconds": 15}),
+                ("get_recent_rollouts", {"lookback_minutes": 120}),
+                ("search_container_logs", {
+                    "target": "both",
+                    "categories": ["oom", "allocation_failure", "process_termination", "runtime_error"],
+                    "relative_window_minutes": 30,
+                }),
+            ]
         else:
             plan = [
                 ("get_cpu_usage_vs_request_limit", {
@@ -282,6 +290,21 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
                     "step_seconds": 15,
                 }),
                 ("get_cpu_throttling", {"window_minutes": 15, "step_seconds": 15}),
+                ("get_container_restart_history", {"window_minutes": 30, "step_seconds": 15}),
+                ("get_recent_rollouts", {"lookback_minutes": 120}),
+                ("search_container_logs", {
+                    "target": "both",
+                    "categories": ["runtime_error", "cpu_hot_loop_hint", "gc_pressure", "request_timeout"],
+                    "relative_window_minutes": 30,
+                }),
+                ("compare_cpu_across_replicas", {"window_minutes": 15, "step_seconds": 15, "max_replicas": 12}),
+                ("get_application_red_metrics", {
+                    "signals": ["request_rate", "error_rate", "latency"],
+                    "route_scope": "all",
+                    "baseline_minutes": 30,
+                    "incident_minutes": 10,
+                    "step_seconds": 30,
+                }),
             ]
 
         results: list[ToolResult] = []
@@ -322,6 +345,9 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
                 risk_notes.append("没有 container_oom_killed Finding 时，页面不得显示已确认 OOMKilled。")
             if any(result.tool_name == "get_memory_usage_vs_limit" for result in results):
                 risk_notes.append("Prometheus 抓取间隔可能错过瞬时峰值；内存未达到 limit 不能作为 OOMKilled 反证。")
+            supplementary = [name for name in ("container_repeatedly_restarted", "container_restart_increased", "rollout_preceded_incident", "runtime_error_log_observed", "oom_log_observed") if name in findings]
+            if supplementary:
+                summary += f" 另观察到 {len(supplementary)} 类重启、发布或日志旁证。"
             diagnosis_mode = "deterministic_oom_v2"
         else:
             cpu_spike = "container_cpu_spike" in findings
@@ -333,6 +359,15 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
             else:
                 summary = "未生成 CPU Spike 确定性事实。"
                 risk_notes.append("未满足 container_cpu_spike_v1 时，不得仅凭单点高 CPU 声称 CPU Spike。")
+            supplemental = [name for name in (
+                "single_replica_cpu_anomaly", "subset_replicas_cpu_anomaly", "all_replicas_cpu_increased",
+                "new_revision_cpu_higher", "request_rate_increased", "request_rate_stable",
+                "error_rate_increased", "latency_increased", "rollout_preceded_incident",
+            ) if name in findings]
+            if supplemental:
+                summary += f" 另形成 {len(supplemental)} 条副本、应用信号或发布相关事实。"
+            if any(result.tool_name == "get_application_red_metrics" and result.error_code == "APPLICATION_METRICS_UNAVAILABLE" for result in results):
+                missing.append("应用 RED 指标未匹配到内置 Profile；这是能力缺口，不是应用信号正常。")
             risk_notes.append("没有 Profile 数据，不能确认具体函数、线程或代码路径导致 CPU 升高。")
             diagnosis_mode = "deterministic_cpu_v1"
 

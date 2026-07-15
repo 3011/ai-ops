@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.9.0-dev.1`
+- 当前 API：`0.9.0-dev.2`
 
 ## 核心链路
 
@@ -256,3 +256,7 @@ kubectl logs -n aiops-dev deployment/aiops-web -f
 - 日志脱敏，告警和日志被视为不可信输入；
 - 不执行自动修复、删除、重启、扩缩容或配置变更；
 - 登录、RBAC 和审计已启用；正式公网开放前仍需补充 HTTPS、CSRF Token、SSO/OIDC 和更严格的会话策略。
+
+## 0.9.0-dev.2 Gate 3
+
+当前 `release/0.9.0` 已注册九个只读可信工具。新增的重启、rollout、日志、副本 CPU 和应用 RED 工具全部通过 Tool Runtime 执行，不接受自由 PromQL/LogQL，不执行写操作。日志内容按不可信输入处理，发布 Finding 只表示时间相关性。Agent Runtime 尚未启用。

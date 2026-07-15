@@ -203,3 +203,81 @@ class PrometheusReadClient:
         except httpx.RequestError as exc:
             raise PrometheusReadError(ToolStatus.UNAVAILABLE, "PROMETHEUS_CONNECTION_ERROR", f"Prometheus 连接失败：{type(exc).__name__}", True) from exc
         return self._validate_payload(payload, expected_result_type="vector")
+
+    def _validate_application_query(
+        self,
+        query: str,
+        *,
+        namespace: str,
+        service: str,
+        allowed_metrics: set[str],
+    ) -> None:
+        if not query or len(query) > self.max_query_chars:
+            raise PrometheusReadError(ToolStatus.INVALID_REQUEST, "PROMETHEUS_QUERY_INVALID", "应用指标查询为空或过长。")
+        namespace_token = f'namespace="{escape_promql_label(namespace)}"'
+        service_tokens = {
+            f'service="{escape_promql_label(service)}"',
+            f'service_name="{escape_promql_label(service)}"',
+            f'job="{escape_promql_label(service)}"',
+            f'app="{escape_promql_label(service)}"',
+            f'application="{escape_promql_label(service)}"',
+        }
+        if namespace_token not in query or not any(token in query for token in service_tokens):
+            raise PrometheusReadError(
+                ToolStatus.DENIED,
+                "PROMETHEUS_SCOPE_VIOLATION",
+                "应用指标查询未绑定 TargetContext namespace 和 service。",
+            )
+        import re
+        metric_tokens = set(re.findall(r"(?<![A-Za-z0-9_:])([A-Za-z_:][A-Za-z0-9_:]*)\s*(?:\{|\[)", query))
+        ignored = {"rate", "sum", "histogram_quantile", "clamp_min"}
+        metric_tokens -= ignored
+        if not metric_tokens or not metric_tokens.issubset(allowed_metrics):
+            raise PrometheusReadError(
+                ToolStatus.DENIED,
+                "PROMETHEUS_METRIC_NOT_ALLOWED",
+                "应用指标查询包含未注册指标。",
+            )
+
+    async def query_range_application(
+        self,
+        *,
+        query: str,
+        namespace: str,
+        service: str,
+        allowed_metrics: set[str],
+        start: datetime,
+        end: datetime,
+        step_seconds: int,
+    ) -> dict[str, Any]:
+        self._validate_application_query(
+            query,
+            namespace=namespace,
+            service=service,
+            allowed_metrics=allowed_metrics,
+        )
+        self._validate_range(start, end, step_seconds)
+        try:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, transport=self.transport) as client:
+                response = await client.get(
+                    "/api/v1/query_range",
+                    params={
+                        "query": query,
+                        "start": start.timestamp(),
+                        "end": end.timestamp(),
+                        "step": f"{step_seconds}s",
+                    },
+                )
+                if response.status_code >= 400:
+                    raise self._map_http_error(response)
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    raise PrometheusReadError(ToolStatus.PARTIAL, "PROMETHEUS_INVALID_JSON", "Prometheus 返回非 JSON 响应。") from exc
+        except PrometheusReadError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise PrometheusReadError(ToolStatus.UNAVAILABLE, "PROMETHEUS_TIMEOUT", "Prometheus 查询超时。", True) from exc
+        except httpx.RequestError as exc:
+            raise PrometheusReadError(ToolStatus.UNAVAILABLE, "PROMETHEUS_CONNECTION_ERROR", f"Prometheus 连接失败：{type(exc).__name__}", True) from exc
+        return self._validate_payload(payload, expected_result_type="matrix")

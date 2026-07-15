@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str | None = None
     session_hours: int = 8
     cookie_secure: bool = False
-    app_version: str = "0.9.0-dev.1"
-    app_release_title: str = "可信 Prometheus 工具与 CPU 确定性闭环"
+    app_version: str = "0.9.0-dev.2"
+    app_release_title: str = "应用与关联可信工具"
     app_release_summary: str = "新增受 TargetContext 约束的内存、CPU 和 throttling 工具，并建立无 Agent 的 CPU Spike 确定性调查。"
-    app_release_changes: str = '["PrometheusReadClient 统一错误与范围限制","get_memory_usage_vs_limit","get_cpu_usage_vs_request_limit","get_cpu_throttling","内存与 CPU 确定性 Finding","CPU Spike 无 Agent 调查链路","真实 OOM 与 CPU 压测场景"]'
+    app_release_changes: str = '["容器重启历史","Deployment rollout 与 CI/CD 时间关联","受控日志类别与 Prompt Injection 隔离","Workload UID 副本 CPU 比较","有限 Profile 应用 RED 指标","完整 5/7 工具无 Agent 固定计划","Gate 3 多副本真实场景"]'
     git_commit: str = ""
     investigation_raw_json_max_bytes: int = 65_536
     investigation_collection_max_items: int = 200

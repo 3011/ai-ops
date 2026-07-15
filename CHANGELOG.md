@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0-dev.2 - 应用与关联可信工具
+
+- 新增 `get_container_restart_history`。
+- 新增 `get_recent_rollouts`，只表达时间相关性，不输出发布导致事故。
+- 新增 `search_container_logs`，类别枚举、脱敏、去重和 Prompt Injection 隔离。
+- 新增 `compare_cpu_across_replicas`，按 Workload UID 固定副本集合。
+- 新增 `get_application_red_metrics`，仅支持内置 HTTP 指标 Profile。
+- OOM 固定计划扩展为 5 个工具，CPU 固定计划扩展为 7 个工具。
+- 新增三副本 CPU/RED/日志真实回归场景。
+
 ## 0.9.0-dev.1 - 可信 Prometheus 工具与 CPU 确定性闭环
 
 - 建立受控 `PrometheusReadClient`，统一范围、步长、序列数、数据点和错误语义；

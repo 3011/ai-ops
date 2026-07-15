@@ -327,9 +327,10 @@ class GetCPUUsageVsRequestLimitTool:
                 summary="Prometheus 查询成功，但目标容器没有 CPU 样本。",
                 error_code="PROMETHEUS_NO_CPU_SAMPLES",
             )
-        baseline_points = [item for item in points if item["timestamp"] < incident_start.timestamp()]
-        incident_points = [item for item in points if item["timestamp"] >= incident_start.timestamp()]
-        baseline_method = "fixed_target_window"
+        signal_split_at = target.incident_time
+        baseline_points = [item for item in points if item["timestamp"] < signal_split_at.timestamp()]
+        incident_points = [item for item in points if item["timestamp"] >= signal_split_at.timestamp()]
+        baseline_method = "incident_time_anchored"
         if len(baseline_points) < 3 or len(incident_points) < 2:
             # New Pods may not exist in the requested historical part of TargetContext.
             # A bounded split of the same UID series is allowed, but never data from another Pod.
@@ -337,12 +338,13 @@ class GetCPUUsageVsRequestLimitTool:
             if split_index:
                 baseline_points = points[:split_index]
                 incident_points = points[split_index:]
-                incident_start = datetime.fromtimestamp(incident_points[0]["timestamp"], tz=UTC)
+                signal_split_at = datetime.fromtimestamp(incident_points[0]["timestamp"], tz=UTC)
                 baseline_method = "observed_same_uid_series_split"
         if len(baseline_points) < 3 or len(incident_points) < 2:
             data = {
                 "baseline_start": baseline_start.isoformat(),
                 "incident_start": incident_start.isoformat(),
+                "signal_split_at": signal_split_at.isoformat(),
                 "query_end": end.isoformat(),
                 "baseline_method": baseline_method,
                 "baseline_sample_count": len(baseline_points),
@@ -386,6 +388,7 @@ class GetCPUUsageVsRequestLimitTool:
         data = {
             "baseline_start": baseline_start.isoformat(),
             "incident_start": incident_start.isoformat(),
+            "signal_split_at": signal_split_at.isoformat(),
             "query_end": end.isoformat(),
             "step_seconds": args.step_seconds,
             "baseline_method": baseline_method,
