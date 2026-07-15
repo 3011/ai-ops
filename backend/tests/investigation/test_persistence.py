@@ -269,7 +269,12 @@ class InvestigationPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_tool.calls, 1)
         async with SessionLocal() as session:
             run = await session.get(InvestigationAnalysisRun, run_id)
-            tool = await session.scalar(select(InvestigationToolExecution).where(InvestigationToolExecution.analysis_run_id == run_id))
+            tool = await session.scalar(
+                select(InvestigationToolExecution).where(
+                    InvestigationToolExecution.analysis_run_id == run_id,
+                    InvestigationToolExecution.tool_name == "get_container_termination_status",
+                )
+            )
             finding = await session.scalar(select(InvestigationFinding).where(InvestigationFinding.analysis_run_id == run_id))
             diagnosis = await session.get(InvestigationDiagnosisResult, run_id)
             model_settings = await session.get(ModelSettings, 1)

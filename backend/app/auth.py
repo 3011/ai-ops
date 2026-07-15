@@ -320,29 +320,39 @@ async def seed_auth_and_release(session: AsyncSession) -> None:
                 released_at=datetime.fromisoformat(item["released_at"]), created_by="system",
             ))
 
+    try:
+        changes = json.loads(settings.app_release_changes or "[]")
+    except json.JSONDecodeError:
+        changes = [settings.app_release_changes]
+    normalized_changes = changes if isinstance(changes, list) else [changes]
+
     release = await session.scalar(select(ReleaseNote).where(ReleaseNote.version == settings.app_version))
-    if release is not None and settings.git_commit and not release.commit_sha:
-        release.commit_sha = settings.git_commit
-    if release is None:
-        try:
-            changes = json.loads(settings.app_release_changes or "[]")
-        except json.JSONDecodeError:
-            changes = [settings.app_release_changes]
-        await session.execute(
-            select(ReleaseNote).where(ReleaseNote.is_current.is_(True)).with_for_update()
-        )
-        for old in (await session.scalars(select(ReleaseNote).where(ReleaseNote.is_current.is_(True)))).all():
+    await session.execute(
+        select(ReleaseNote).where(ReleaseNote.is_current.is_(True)).with_for_update()
+    )
+    for old in (await session.scalars(select(ReleaseNote).where(ReleaseNote.is_current.is_(True)))).all():
+        if release is None or old.id != release.id:
             old.is_current = False
-        session.add(
-            ReleaseNote(
-                version=settings.app_version,
-                title=settings.app_release_title,
-                summary=settings.app_release_summary,
-                changes=changes if isinstance(changes, list) else [changes],
-                commit_sha=settings.git_commit or None,
-                is_current=True,
-                released_at=utcnow(),
-                created_by="system",
-            )
+
+    if release is None:
+        release = ReleaseNote(
+            version=settings.app_version,
+            title=settings.app_release_title,
+            summary=settings.app_release_summary,
+            changes=normalized_changes,
+            commit_sha=settings.git_commit or None,
+            is_current=True,
+            released_at=utcnow(),
+            created_by="system",
         )
+        session.add(release)
+    else:
+        # Development and release deployments can reuse the same semantic version.
+        # Keep one row, but synchronize it with the code actually running now.
+        release.title = settings.app_release_title
+        release.summary = settings.app_release_summary
+        release.changes = normalized_changes
+        if settings.git_commit:
+            release.commit_sha = settings.git_commit
+        release.is_current = True
     await session.commit()
