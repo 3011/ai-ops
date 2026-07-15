@@ -9,7 +9,13 @@ if ! kubectl get secret aiops-secrets -n "$NS" >/dev/null 2>&1; then
   kubectl create secret generic aiops-secrets -n "$NS" \
     --from-literal=POSTGRES_PASSWORD="$PASSWORD" \
     --from-literal=DATABASE_URL="postgresql+asyncpg://aiops:${PASSWORD}@postgresql:5432/aiops" \
-    --from-literal=LLM_API_KEY=""
+    --from-literal=LLM_API_KEY="" \
+    --from-literal=SETTINGS_ENCRYPTION_KEY="$(python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+fi
+if [[ -z "$(kubectl get secret aiops-secrets -n "$NS" -o jsonpath='{.data.SETTINGS_ENCRYPTION_KEY}' 2>/dev/null)" ]]; then
+  ENCRYPTION_KEY="$(python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+  kubectl patch secret aiops-secrets -n "$NS" --type merge \
+    -p "$(printf '{"stringData":{"SETTINGS_ENCRYPTION_KEY":"%s"}}' "$ENCRYPTION_KEY")" >/dev/null
 fi
 kubectl apply -f "$ROOT/deploy/dev/10-postgresql.yaml"
 kubectl apply -f "$ROOT/deploy/dev/20-backend.yaml"

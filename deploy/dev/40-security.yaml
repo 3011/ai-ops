@@ -1,3 +1,40 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aiops-worker
+  namespace: aiops-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiops-worker-observer
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "events", "nodes", "namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aiops-worker-observer
+subjects:
+  - kind: ServiceAccount
+    name: aiops-worker
+    namespace: aiops-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aiops-worker-observer
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

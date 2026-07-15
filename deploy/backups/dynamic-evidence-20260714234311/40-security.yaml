@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql-only-from-aiops
+  namespace: aiops-dev
+spec:
+  podSelector:
+    matchLabels: {app: postgresql}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app, operator: In, values: [aiops-api, aiops-worker]}
+      ports:
+        - {protocol: TCP, port: 5432}

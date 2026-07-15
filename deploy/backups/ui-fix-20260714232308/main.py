@@ -67,69 +67,10 @@ def grouping(labels: dict[str, Any]) -> tuple[str, dict[str, str]]:
         ),
         "environment": str(labels.get("environment") or labels.get("env") or "unknown"),
     }
-    if labels.get("aiops_test") is not None:
-        selected["aiops_test"] = str(labels.get("aiops_test"))
-    if labels.get("aiops_enabled") is not None:
-        selected["aiops_enabled"] = str(labels.get("aiops_enabled"))
-    return "|".join(selected[key] for key in ("cluster", "namespace", "service", "environment")), selected
-
-
-def classify_origin(
-    *,
-    title: str = "",
-    labels: dict[str, Any] | None = None,
-    annotations: dict[str, Any] | None = None,
-    fingerprint: str = "",
-    receiver: str = "",
-) -> dict[str, Any]:
-    labels = labels or {}
-    annotations = annotations or {}
-    searchable = " ".join(
-        [
-            title,
-            fingerprint,
-            str(labels.get("service") or ""),
-            str(labels.get("alertname") or ""),
-            str(labels.get("namespace") or ""),
-            str(annotations.get("summary") or ""),
-            str(annotations.get("description") or ""),
-        ]
-    ).lower()
-    is_test = str(labels.get("aiops_test") or "").lower() == "true" or any(
-        marker in searchable
-        for marker in (
-            "devtest",
-            "demo-service",
-            "integration-test",
-            "aiopsintegrationtest",
-            "链路测试",
-            "演示服务",
-            "aiops-scenario",
-            "场景测试",
-            "降级测试",
-            "自动发现测试",
-            "自动规划测试",
-            "生命周期回归测试",
-            "fingerprint 生命周期回归",
-        )
-    )
-    automated = bool(
-        labels.get("prometheus")
-        or labels.get("aiops_enabled") == "true"
-        or receiver.startswith("aiops-dev/")
-        or "integration-test" in searchable
-        or "aiopsintegrationtest" in searchable
-    )
-    source = "alertmanager" if automated else "manual_webhook"
-    return {
-        "source": source,
-        "source_label": "Alertmanager 自动投递" if automated else "手工 Webhook 测试",
-        "is_test": is_test,
-    }
+    return "|".join(selected.values()), selected
 
 
 def incident_payload(row: Incident) -> dict[str, Any]:
-    origin = classify_origin(title=row.title, labels=row.labels)
     return {
         "id": row.id,
         "title": row.title,
@@ -140,48 +81,6 @@ def incident_payload(row: Incident) -> dict[str, Any]:
         "first_seen_at": row.first_seen_at,
         "last_seen_at": row.last_seen_at,
         "resolved_at": row.resolved_at,
-        **origin,
-    }
-
-
-def incident_is_test(row: Incident) -> bool:
-    return bool(classify_origin(title=row.title, labels=row.labels).get("is_test"))
-
-
-def alert_payload(row: AlertInstance) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "fingerprint": row.fingerprint,
-        "alertname": row.alertname,
-        "status": row.status,
-        "severity": row.severity,
-        "labels": row.labels,
-        "annotations": row.annotations,
-        "starts_at": row.starts_at,
-        "ends_at": row.ends_at,
-        "last_seen_at": row.last_seen_at,
-        **classify_origin(title=row.alertname, labels=row.labels, annotations=row.annotations, fingerprint=row.fingerprint),
-    }
-
-
-def delivery_payload(row: WebhookDelivery) -> dict[str, Any]:
-    payload = row.payload or {}
-    first_alert = (payload.get("alerts") or [{}])[0]
-    return {
-        "id": row.id,
-        "receiver": row.receiver,
-        "status": row.status,
-        "group_key": row.group_key,
-        "alert_count": len(payload.get("alerts") or []),
-        "incidents": (row.processing_result or {}).get("incidents", []),
-        "received_at": row.received_at,
-        **classify_origin(
-            title=str((payload.get("commonAnnotations") or {}).get("summary") or ""),
-            labels=payload.get("commonLabels") or first_alert.get("labels") or {},
-            annotations=payload.get("commonAnnotations") or first_alert.get("annotations") or {},
-            fingerprint=str(first_alert.get("fingerprint") or ""),
-            receiver=row.receiver or "",
-        ),
     }
 
 
@@ -238,7 +137,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.5.1", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
 app.mount("/metrics", make_asgi_app())
 
 
@@ -430,9 +329,7 @@ async def webhook(
     incident_ids: set[int] = set()
     for alert in payload.get("alerts") or []:
         labels = alert.get("labels") or {}
-        annotations = dict(alert.get("annotations") or {})
-        if alert.get("generatorURL"):
-            annotations["_generator_url"] = str(alert.get("generatorURL"))[:4000]
+        annotations = alert.get("annotations") or {}
         fingerprint = alert.get("fingerprint") or stable_hash(labels)[:64]
         starts_at = parse_time(alert.get("startsAt"))
         status = str(alert.get("status") or payload.get("status") or "firing")
@@ -442,38 +339,6 @@ async def webhook(
                 AlertInstance.starts_at == starts_at,
             )
         )
-        resolved_at = parse_time(alert.get("endsAt")) if status == "resolved" else None
-        if status == "resolved":
-            # Alertmanager/Prometheus can restart an alert lifecycle with the same
-            # fingerprint but a different startsAt. Close every stale firing row for
-            # this fingerprint so an old lifecycle cannot keep an incident open forever.
-            stale_firing = (
-                await session.scalars(
-                    select(AlertInstance)
-                    .where(
-                        AlertInstance.fingerprint == fingerprint,
-                        AlertInstance.status == "firing",
-                    )
-                    .order_by(AlertInstance.starts_at.desc())
-                )
-            ).all()
-            for stale in stale_firing:
-                stale.status = "resolved"
-                stale.ends_at = resolved_at
-                stale.labels = labels
-                stale.annotations = annotations
-                stale.last_seen_at = now()
-            if stale_firing:
-                stale_incident_ids = (
-                    await session.scalars(
-                        select(IncidentAlert.incident_id).where(
-                            IncidentAlert.alert_instance_id.in_([row.id for row in stale_firing])
-                        )
-                    )
-                ).all()
-                incident_ids.update(stale_incident_ids)
-                if instance is None:
-                    instance = stale_firing[0]
         if instance is None:
             instance = AlertInstance(
                 fingerprint=fingerprint,
@@ -483,7 +348,6 @@ async def webhook(
                 labels=labels,
                 annotations=annotations,
                 starts_at=starts_at,
-                ends_at=resolved_at,
                 last_seen_at=now(),
             )
             session.add(instance)
@@ -493,8 +357,8 @@ async def webhook(
             instance.labels = labels
             instance.annotations = annotations
             instance.last_seen_at = now()
-            if resolved_at is not None:
-                instance.ends_at = resolved_at
+        if status == "resolved":
+            instance.ends_at = parse_time(alert.get("endsAt"))
 
         group_key, group_labels = grouping(labels)
         incident = await session.scalar(
@@ -596,25 +460,42 @@ async def webhook(
 
 @app.get("/api/v1/dashboard/summary")
 async def dashboard_summary(
-    include_test: bool = False,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     since = now() - timedelta(hours=24)
-    all_incidents = (
-        await session.scalars(select(Incident).order_by(Incident.last_seen_at.desc()))
+    open_total = await session.scalar(
+        select(func.count(Incident.id)).where(Incident.status == "open")
+    )
+    critical_open = await session.scalar(
+        select(func.count(Incident.id)).where(
+            Incident.status == "open", Incident.severity == "critical"
+        )
+    )
+    warning_open = await session.scalar(
+        select(func.count(Incident.id)).where(
+            Incident.status == "open", Incident.severity == "warning"
+        )
+    )
+    incidents_24h = await session.scalar(
+        select(func.count(Incident.id)).where(Incident.first_seen_at >= since)
+    )
+    analysis_total = await session.scalar(select(func.count(AnalysisRun.id)))
+    analysis_success = await session.scalar(
+        select(func.count(AnalysisRun.id)).where(AnalysisRun.status == "succeeded")
+    )
+    pending_jobs = await session.scalar(
+        select(func.count(OutboxJob.id)).where(
+            OutboxJob.status.in_(["pending", "retry", "processing"])
+        )
+    )
+    failed_jobs = await session.scalar(
+        select(func.count(OutboxJob.id)).where(OutboxJob.status == "dead")
+    )
+    recent = (
+        await session.scalars(
+            select(Incident).order_by(Incident.last_seen_at.desc()).limit(8)
+        )
     ).all()
-    test_count = sum(1 for row in all_incidents if incident_is_test(row))
-    incidents = all_incidents if include_test else [row for row in all_incidents if not incident_is_test(row)]
-    incident_ids = {row.id for row in incidents}
-    analyses = (
-        await session.scalars(select(AnalysisRun).order_by(AnalysisRun.created_at.desc()))
-    ).all()
-    analyses = [row for row in analyses if row.incident_id in incident_ids]
-    jobs = (
-        await session.scalars(select(OutboxJob).order_by(OutboxJob.created_at.desc()))
-    ).all()
-    jobs = [row for row in jobs if int((row.payload or {}).get("incident_id") or 0) in incident_ids]
-    recent = incidents[:8]
     model_row = await session.get(ModelSettings, 1)
     model_public = public_model_settings(model_row)
     probes = await asyncio.gather(
@@ -622,25 +503,34 @@ async def dashboard_summary(
         probe_http("Loki", f"{settings.loki_url.rstrip('/')}/ready"),
         probe_http("Alertmanager", f"{settings.alertmanager_url.rstrip('/')}/-/ready"),
     )
-    probes.append({
-        "name": "AI 模型",
-        "status": "healthy" if model_public.get("enabled") and model_public.get("api_key_configured") and model_public.get("last_test_status") == "success" else "warning",
-        "latency_ms": None,
-        "message": model_public.get("last_test_message") or "尚未完成连接测试",
-    })
-    analysis_success = sum(1 for row in analyses if row.status == "succeeded")
+    probes.append(
+        {
+            "name": "AI 模型",
+            "status": (
+                "healthy"
+                if model_public.get("enabled")
+                and model_public.get("api_key_configured")
+                and model_public.get("last_test_status") == "success"
+                else "warning"
+            ),
+            "latency_ms": None,
+            "message": model_public.get("last_test_message") or "尚未完成连接测试",
+        }
+    )
     return {
-        "open_incidents": sum(1 for row in incidents if row.status == "open"),
-        "critical_open": sum(1 for row in incidents if row.status == "open" and row.severity == "critical"),
-        "warning_open": sum(1 for row in incidents if row.status == "open" and row.severity == "warning"),
-        "incidents_24h": sum(1 for row in incidents if row.first_seen_at >= since),
-        "analysis_success_rate": round(analysis_success * 100 / len(analyses), 1) if analyses else 0,
-        "analysis_total": len(analyses),
-        "pending_jobs": sum(1 for row in jobs if row.status in ("pending", "retry", "processing")),
-        "failed_jobs": sum(1 for row in jobs if row.status == "dead"),
+        "open_incidents": int(open_total or 0),
+        "critical_open": int(critical_open or 0),
+        "warning_open": int(warning_open or 0),
+        "incidents_24h": int(incidents_24h or 0),
+        "analysis_success_rate": (
+            round(int(analysis_success or 0) * 100 / int(analysis_total or 1), 1)
+            if analysis_total
+            else 0
+        ),
+        "analysis_total": int(analysis_total or 0),
+        "pending_jobs": int(pending_jobs or 0),
+        "failed_jobs": int(failed_jobs or 0),
         "recent_incidents": [incident_payload(row) for row in recent],
-        "hidden_test_count": 0 if include_test else test_count,
-        "include_test": include_test,
         "data_sources": probes,
         "model": model_public,
         "generated_at": now(),
@@ -650,35 +540,40 @@ async def dashboard_summary(
 @app.get("/api/v1/dashboard/trend")
 async def dashboard_trend(
     hours: int = 24,
-    include_test: bool = False,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     hours = max(6, min(hours, 168))
     end = now().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     start = end - timedelta(hours=hours)
-    all_rows = (
-        await session.scalars(select(Incident).where(Incident.first_seen_at >= start).order_by(Incident.first_seen_at))
+    rows = (
+        await session.scalars(
+            select(Incident).where(Incident.first_seen_at >= start).order_by(Incident.first_seen_at)
+        )
     ).all()
-    hidden_test_count = sum(1 for row in all_rows if incident_is_test(row))
-    rows = all_rows if include_test else [row for row in all_rows if not incident_is_test(row)]
     buckets = []
     cursor = start
     while cursor < end:
         bucket_rows = [row for row in rows if cursor <= row.first_seen_at < cursor + timedelta(hours=1)]
-        buckets.append({
-            "time": cursor, "total": len(bucket_rows),
-            "critical": sum(1 for row in bucket_rows if row.severity == "critical"),
-            "warning": sum(1 for row in bucket_rows if row.severity == "warning"),
-            "info": sum(1 for row in bucket_rows if row.severity == "info"),
-        })
+        buckets.append(
+            {
+                "time": cursor,
+                "total": len(bucket_rows),
+                "critical": sum(1 for row in bucket_rows if row.severity == "critical"),
+                "warning": sum(1 for row in bucket_rows if row.severity == "warning"),
+                "info": sum(1 for row in bucket_rows if row.severity == "info"),
+            }
+        )
         cursor += timedelta(hours=1)
-    severity = {level: sum(1 for row in rows if row.severity == level) for level in ("critical", "warning", "info")}
+    severity = {level: sum(1 for row in rows if row.severity == level) for level in ["critical", "warning", "info"]}
     service_counts: dict[str, int] = {}
     for row in rows:
         service = str((row.labels or {}).get("service") or "unknown")
         service_counts[service] = service_counts.get(service, 0) + 1
-    top_services = [{"service": service, "count": count} for service, count in sorted(service_counts.items(), key=lambda item: item[1], reverse=True)[:8]]
-    return {"hours": hours, "buckets": buckets, "severity": severity, "top_services": top_services, "hidden_test_count": 0 if include_test else hidden_test_count, "include_test": include_test}
+    top_services = [
+        {"service": service, "count": count}
+        for service, count in sorted(service_counts.items(), key=lambda item: item[1], reverse=True)[:8]
+    ]
+    return {"hours": hours, "buckets": buckets, "severity": severity, "top_services": top_services}
 
 
 @app.get("/api/v1/alerts")
@@ -687,64 +582,109 @@ async def list_alerts(
     severity: str | None = None,
     namespace: str | None = None,
     q: str | None = None,
-    include_test: bool = False,
     limit: int = 100,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     filters = []
-    if status: filters.append(AlertInstance.status == status)
-    if severity: filters.append(AlertInstance.severity == severity)
-    if namespace: filters.append(AlertInstance.labels["namespace"].astext == namespace)
+    if status:
+        filters.append(AlertInstance.status == status)
+    if severity:
+        filters.append(AlertInstance.severity == severity)
+    if namespace:
+        filters.append(AlertInstance.labels["namespace"].astext == namespace)
     if q:
         keyword = f"%{q.strip()}%"
         filters.append(or_(AlertInstance.alertname.ilike(keyword), AlertInstance.fingerprint.ilike(keyword)))
-    rows = (await session.scalars(select(AlertInstance).where(*filters).order_by(AlertInstance.last_seen_at.desc()).limit(1000))).all()
-    payloads = [alert_payload(row) for row in rows]
-    hidden = sum(1 for item in payloads if item["is_test"])
-    if not include_test: payloads = [item for item in payloads if not item["is_test"]]
     limit = max(1, min(limit, 500))
-    return {"items": payloads[:limit], "total": len(payloads), "hidden_test_count": 0 if include_test else hidden, "include_test": include_test}
+    rows = (
+        await session.scalars(
+            select(AlertInstance).where(*filters).order_by(AlertInstance.last_seen_at.desc()).limit(limit)
+        )
+    ).all()
+    total = await session.scalar(select(func.count(AlertInstance.id)).where(*filters))
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "fingerprint": row.fingerprint,
+                "alertname": row.alertname,
+                "status": row.status,
+                "severity": row.severity,
+                "labels": row.labels,
+                "annotations": row.annotations,
+                "starts_at": row.starts_at,
+                "ends_at": row.ends_at,
+                "last_seen_at": row.last_seen_at,
+            }
+            for row in rows
+        ],
+        "total": int(total or 0),
+    }
 
 
 @app.get("/api/v1/webhook-deliveries")
 async def list_webhook_deliveries(
     status: str | None = None,
-    include_test: bool = False,
     limit: int = 100,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     filters = [WebhookDelivery.status == status] if status else []
-    rows = (await session.scalars(select(WebhookDelivery).where(*filters).order_by(WebhookDelivery.received_at.desc()).limit(1000))).all()
-    payloads = [delivery_payload(row) for row in rows]
-    hidden = sum(1 for item in payloads if item["is_test"])
-    if not include_test: payloads = [item for item in payloads if not item["is_test"]]
     limit = max(1, min(limit, 500))
-    return {"items": payloads[:limit], "total": len(payloads), "hidden_test_count": 0 if include_test else hidden, "include_test": include_test}
+    rows = (
+        await session.scalars(
+            select(WebhookDelivery).where(*filters).order_by(WebhookDelivery.received_at.desc()).limit(limit)
+        )
+    ).all()
+    total = await session.scalar(select(func.count(WebhookDelivery.id)).where(*filters))
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "receiver": row.receiver,
+                "status": row.status,
+                "group_key": row.group_key,
+                "alert_count": len((row.payload or {}).get("alerts") or []),
+                "incidents": (row.processing_result or {}).get("incidents", []),
+                "received_at": row.received_at,
+            }
+            for row in rows
+        ],
+        "total": int(total or 0),
+    }
 
 
 @app.get("/api/v1/analysis-jobs")
 async def list_analysis_jobs(
     status: str | None = None,
-    include_test: bool = False,
     limit: int = 100,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     filters = [OutboxJob.status == status] if status else []
-    rows = (await session.scalars(select(OutboxJob).where(*filters).order_by(OutboxJob.created_at.desc()).limit(1000))).all()
-    incident_ids = {int((row.payload or {}).get("incident_id") or 0) for row in rows}
-    incident_rows = (await session.scalars(select(Incident).where(Incident.id.in_(incident_ids)))).all() if incident_ids else []
-    test_ids = {row.id for row in incident_rows if incident_is_test(row)}
-    hidden = sum(1 for row in rows if int((row.payload or {}).get("incident_id") or 0) in test_ids)
-    if not include_test:
-        rows = [row for row in rows if int((row.payload or {}).get("incident_id") or 0) not in test_ids]
     limit = max(1, min(limit, 500))
-    items = [{
-        "id": row.id, "job_type": row.job_type, "incident_id": (row.payload or {}).get("incident_id"),
-        "status": row.status, "priority": row.priority, "attempts": row.attempts,
-        "max_attempts": row.max_attempts, "last_error": row.last_error,
-        "created_at": row.created_at, "finished_at": row.finished_at,
-    } for row in rows[:limit]]
-    return {"items": items, "total": len(rows), "hidden_test_count": 0 if include_test else hidden, "include_test": include_test}
+    rows = (
+        await session.scalars(
+            select(OutboxJob).where(*filters).order_by(OutboxJob.created_at.desc()).limit(limit)
+        )
+    ).all()
+    total = await session.scalar(select(func.count(OutboxJob.id)).where(*filters))
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "job_type": row.job_type,
+                "incident_id": (row.payload or {}).get("incident_id"),
+                "status": row.status,
+                "priority": row.priority,
+                "attempts": row.attempts,
+                "max_attempts": row.max_attempts,
+                "last_error": row.last_error,
+                "created_at": row.created_at,
+                "finished_at": row.finished_at,
+            }
+            for row in rows
+        ],
+        "total": int(total or 0),
+    }
 
 
 @app.get("/api/v1/incidents")
@@ -756,27 +696,39 @@ async def list_incidents(
     service: str | None = None,
     environment: str | None = None,
     q: str | None = None,
-    include_test: bool = False,
     limit: int = 100,
     offset: int = 0,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     filters = []
-    if status: filters.append(Incident.status == status)
-    if severity: filters.append(Incident.severity == severity)
-    if cluster: filters.append(Incident.labels["cluster"].astext == cluster)
-    if namespace: filters.append(Incident.labels["namespace"].astext == namespace)
-    if service: filters.append(Incident.labels["service"].astext == service)
-    if environment: filters.append(Incident.labels["environment"].astext == environment)
+    if status:
+        filters.append(Incident.status == status)
+    if severity:
+        filters.append(Incident.severity == severity)
+    if cluster:
+        filters.append(Incident.labels["cluster"].astext == cluster)
+    if namespace:
+        filters.append(Incident.labels["namespace"].astext == namespace)
+    if service:
+        filters.append(Incident.labels["service"].astext == service)
+    if environment:
+        filters.append(Incident.labels["environment"].astext == environment)
     if q:
         keyword = f"%{q.strip()}%"
         filters.append(or_(Incident.title.ilike(keyword), Incident.grouping_key.ilike(keyword)))
-    rows = (await session.scalars(select(Incident).where(*filters).order_by(Incident.last_seen_at.desc()).limit(2000))).all()
-    hidden = sum(1 for row in rows if incident_is_test(row))
-    if not include_test: rows = [row for row in rows if not incident_is_test(row)]
-    limit = max(1, min(limit, 500)); offset = max(0, offset)
-    page = rows[offset:offset + limit]
-    return {"items": [incident_payload(row) for row in page], "total": len(rows), "hidden_test_count": 0 if include_test else hidden, "include_test": include_test}
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    rows = (
+        await session.scalars(
+            select(Incident)
+            .where(*filters)
+            .order_by(Incident.last_seen_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    total = await session.scalar(select(func.count(Incident.id)).where(*filters))
+    return {"items": [incident_payload(row) for row in rows], "total": int(total or 0)}
 
 
 @app.get("/api/v1/incidents/{incident_id}")
@@ -809,21 +761,6 @@ async def incident_detail(
             .order_by(EvidenceSnapshot.created_at.desc())
         )
     ).all()
-    detail_origin = classify_origin(title=incident.title, labels=incident.labels)
-    if alerts:
-        alert_origins = [
-            classify_origin(
-                title=alert.alertname,
-                labels=alert.labels,
-                annotations=alert.annotations,
-                fingerprint=alert.fingerprint,
-            )
-            for alert in alerts
-        ]
-        detail_origin["is_test"] = any(item["is_test"] for item in alert_origins)
-        if any(item["source"] == "alertmanager" for item in alert_origins):
-            detail_origin["source"] = "alertmanager"
-            detail_origin["source_label"] = "Alertmanager 自动投递"
     return {
         "id": incident.id,
         "title": incident.title,
@@ -834,7 +771,6 @@ async def incident_detail(
         "first_seen_at": incident.first_seen_at,
         "last_seen_at": incident.last_seen_at,
         "resolved_at": incident.resolved_at,
-        **detail_origin,
         "alerts": [
             {
                 "id": alert.id,
@@ -845,12 +781,6 @@ async def incident_detail(
                 "annotations": alert.annotations,
                 "starts_at": alert.starts_at,
                 "ends_at": alert.ends_at,
-                **classify_origin(
-                    title=alert.alertname,
-                    labels=alert.labels,
-                    annotations=alert.annotations,
-                    fingerprint=alert.fingerprint,
-                ),
             }
             for alert in alerts
         ],

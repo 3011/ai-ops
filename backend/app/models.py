@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -104,3 +104,21 @@ class AnalysisRun(Base):
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+
+class ModelSettings(Base):
+    __tablename__ = "model_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="openai-compatible")
+    base_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_status: Mapped[str | None] = mapped_column(String(32))
+    last_test_message: Mapped[str | None] = mapped_column(Text)

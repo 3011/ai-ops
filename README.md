@@ -1,26 +1,59 @@
-# AIOps Console MVP
+# AIOps Console
 
-开发源码目录：`k8s-cp01:/root/aiops-console`。
+源码目录：`k8s-cp01:/root/aiops-console`。开发服务运行在 Kubernetes `aiops-dev` 命名空间；API、Worker 和 React 通过 `hostPath` 挂载源码，PostgreSQL 使用 PVC。
 
-开发服务运行在 Kubernetes `aiops-dev` 命名空间。API、Worker、React 开发容器通过 `hostPath` 挂载源码并固定到 `k8s-cp01`；PostgreSQL 使用独立 PVC，不把数据库数据写入 `/root`。
+- Web：`http://172.30.10.11:30300`
+- API 文档：`http://172.30.10.11:30801/docs`
+- 当前 API：`0.5.1`
 
-## 当前实现
+## 核心链路
 
-- FastAPI Alertmanager webhook
-- `webhook_deliveries → alert_instances → incidents` 三层模型
-- firing/resolved 生命周期和重复投递幂等
-- PostgreSQL Outbox、`FOR UPDATE SKIP LOCKED`、超时锁回收、重试和死信
-- 围绕告警 `startsAt` 查询 Prometheus 和 Loki
-- 保存 PromQL、LogQL、查询时间窗、摘要、耗时和错误
-- OpenAI-compatible 结构化 LLM 分析；无 Key 时自动降级为确定性证据报告
-- 日志样本脱敏、Prompt Injection 隔离和高风险操作过滤
-- React + TypeScript + Ant Design 运维工作台
-- 运维总览、事件中心、原始告警、Webhook 投递、分析任务和模型设置
-- 事件状态/级别/命名空间/服务筛选
-- 数据源健康检查、24 小时事件趋势和高频服务统计
-- Prometheus 指标曲线、Loki 日志摘要、AI 根因假设和分析历史
-- 手工“重新分析”功能
-- `/healthz`、`/readyz`、`/metrics`
+```text
+Prometheus → Alertmanager → FastAPI webhook
+                          → PostgreSQL webhook/alert/incident/outbox
+                          → Worker 自动发现 Kubernetes 目标
+                          → Kubernetes API / Events / current+previous logs
+                          → 原始告警 PromQL + 通用 Prometheus/Loki 证据
+                          → DeepSeek 受限动态 PromQL/LogQL 规划
+                          → 安全校验与只读执行
+                          → 结构化根因假设、覆盖度和缺口说明
+```
+
+## 当前能力
+
+- `webhook_deliveries → alert_instances → incidents` 三层模型；
+- firing/resolved 幂等和同 fingerprint 跨 startsAt 生命周期收敛；
+- PostgreSQL Outbox、`FOR UPDATE SKIP LOCKED`、重试、死信和锁回收；
+- 自动发现 Pod、Deployment、StatefulSet、DaemonSet、Service 和 Node；
+- 自动采集容器状态、Ready、重启、退出码、OOMKilled、镜像和 Kubernetes Events；
+- 自动读取当前与 previous 容器日志，Loki 延迟或短生命周期容器也能取证；
+- 从 Alertmanager `generatorURL` 解析原始 PromQL；
+- 自动查询 CPU、内存、重启、Ready、OOM、网络、CPU throttling、Node 和 target up；
+- DeepSeek 动态规划最多 4 条 PromQL 和 2 条 LogQL；
+- 动态查询必须命中事件作用域，LogQL 仅允许 namespace 内简单行过滤；
+- 初次告警后自动安排完整 30 分钟观察窗口的补充分析；
+- 证据、查询、响应摘要、耗时和错误全部持久化；
+- React 工作台：总览、事件、告警、Webhook、任务、模型设置、证据覆盖度和动态计划；
+- 生产视图默认隐藏 `aiops_test=true` 测试数据，可通过页面开关查看。
+
+## “无需告警模板”的边界
+
+平台不要求为每个告警名称手工维护 PromQL/LogQL 模板。它采用：
+
+1. 确定性目标发现；
+2. 通用只读证据采集；
+3. 原始告警表达式复用；
+4. LLM 受限动态查询规划；
+5. 安全校验和预算控制；
+6. LLM 最终假设与人工确认。
+
+这能覆盖大量 Kubernetes、Node、容器和具备指标/日志的应用故障，但不能保证任何故障都得到唯一根因。缺少业务指标、外部托管服务数据、变更记录、Trace 或领域语义时，平台会降低覆盖度并明确列出缺口，而不是虚构结论。
+
+## 模型设置
+
+进入前端 `设置`，可维护 OpenAI-compatible Base URL、模型、API Key 和启用状态。API Key 使用 Fernet 加密存入 PostgreSQL，前端不回显明文；Worker 每次任务读取最新配置，无需重启。
+
+当前验证模型：`deepseek-v4-flash`。
 
 ## 部署
 
@@ -29,59 +62,24 @@ cd /root/aiops-console
 bash deploy/dev/deploy.sh
 ```
 
-访问：
+## 场景回归
 
-- Web: `http://172.30.10.11:30300`
-- API docs: `http://172.30.10.11:30801/docs`
-
-
-## 控制台页面
-
-- `/dashboard`：运维总览、事件趋势、数据源健康和最近事件
-- `/incidents`：聚合事件中心和多条件筛选
-- `/alerts`：原始告警实例生命周期
-- `/deliveries`：Alertmanager Webhook 投递审计
-- `/jobs`：Outbox 分析任务和重试状态
-- `/settings/model`：模型 API 设置
-
-## 测试告警生命周期
+测试资源只创建在 `aiops-dev`，全部携带 `aiops_test=true`：
 
 ```bash
-curl -sS -X POST -H 'Content-Type: application/json' \
-  --data-binary @deploy/dev/test-firing.json \
-  http://172.30.10.11:30801/api/v1/webhooks/alertmanager
-
-curl -sS http://172.30.10.11:30801/api/v1/incidents
-
-curl -sS -X POST -H 'Content-Type: application/json' \
-  --data-binary @deploy/dev/test-resolved.json \
-  http://172.30.10.11:30801/api/v1/webhooks/alertmanager
+bash deploy/dev/scenarios/run.sh
+# 等待 Prometheus、Alertmanager 和 Worker 完成
+python3 deploy/dev/scenarios/validate.py
+bash deploy/dev/scenarios/cleanup.sh
 ```
 
-重新采集证据并分析：
+覆盖 CrashLoopBackOff、OOMKilled、Node-only、缺失标签降级、HTTP 动态查询规划、不同 startsAt 的 fingerprint 生命周期、测试数据隔离和无死信任务。
+
+后端单元测试：
 
 ```bash
-curl -sS -X POST \
-  http://172.30.10.11:30801/api/v1/incidents/1/reanalyze
-```
-
-## 配置 LLM
-
-打开前端菜单 `设置 → 模型设置`，可以维护：
-
-- OpenAI-compatible API Base URL
-- 模型名称
-- API Key
-- AI 分析启用状态
-- API 连通性测试
-
-API Key 使用 Fernet 加密后保存到 PostgreSQL，页面不会回显明文。Worker 每次分析任务都会读取最新配置，无需修改 YAML 或重启。
-
-当前推荐配置：
-
-```text
-Base URL: https://api.deepseek.com
-Model: deepseek-v4-flash
+kubectl exec -n aiops-dev deploy/aiops-worker -- \
+  sh -ec 'PYTHONPATH=/deps:/workspace python -m unittest discover -s /workspace/tests -v'
 ```
 
 ## 查看日志
@@ -92,52 +90,11 @@ kubectl logs -n aiops-dev deployment/aiops-worker -f
 kubectl logs -n aiops-dev deployment/aiops-web -f
 ```
 
-## Alertmanager 实际接入
+## 安全边界
 
-`deploy/dev/50-alertmanager-config.yaml` 已将 Alertmanager 接到集群内地址：
-
-```text
-http://aiops-api.aiops-dev.svc:8000/api/v1/webhooks/alertmanager
-```
-
-开发阶段使用显式准入机制。告警必须同时满足：
-
-```yaml
-labels:
-  namespace: aiops-dev
-  aiops_enabled: "true"
-```
-
-才会被 `AlertmanagerConfig` 路由到 AIOps 控制台。其他命名空间和未标记告警不受影响。
-
-真实链路测试：
-
-```bash
-kubectl apply -f deploy/dev/test-alert-rule.yaml
-
-# 查看事件进入控制台后删除测试规则
-kubectl delete -f deploy/dev/test-alert-rule.yaml
-```
-
-测试链路为：
-
-```text
-PrometheusRule → Prometheus → Alertmanager → AIOps API → PostgreSQL Outbox → Worker
-```
-
-
-## 模型设置
-
-前端菜单进入 `设置 → 模型设置`，可维护：
-
-- OpenAI-compatible API Base URL
-- 模型名称
-- API Key
-- AI 分析启用状态
-- API 连通性测试
-
-API Key 使用 `SETTINGS_ENCRYPTION_KEY` 通过 Fernet 加密后存入 PostgreSQL，前端只显示是否已配置，不回显明文。Worker 每次分析时读取最新数据库配置，无需重启。
-
-## 测试数据标识
-
-控制台会根据告警 fingerprint、服务名、annotation 和 Alertmanager 标签标记链路测试数据。事件中心、原始告警、Webhook 投递和事件详情会显示“测试数据”“Alertmanager 自动投递”或“手工 Webhook 测试”，避免把开发验收记录误认为生产事故。
+- Worker Kubernetes RBAC 仅 `get/list` 和 `pods/log get`；
+- Prometheus、Loki、Alertmanager 只读；
+- 动态查询有数量、长度、复杂度和作用域限制；
+- 日志脱敏，告警和日志被视为不可信输入；
+- 不执行自动修复、删除、重启、扩缩容或配置变更；
+- 正式开放前仍需补充登录、RBAC、审计和管理员权限控制。

@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-oom
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-oom
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-oom
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-oom
+        app.kubernetes.io/name: aiops-scenario-oom
+        aiops_test: "true"
+    spec:
+      containers:
+        - name: memory-eater
+          image: python:3.12-alpine
+          command: ["python", "-c"]
+          args:
+            - |
+              import time
+              data=[]
+              print('starting simulated memory pressure', flush=True)
+              while True:
+                  data.append(bytearray(1024*1024))
+                  print(f'allocated_mb={len(data)}', flush=True)
+                  time.sleep(0.05)
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 100m, memory: 32Mi}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-scenario-oom
+  namespace: aiops-dev
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: aiops-scenario-oom
+      interval: 15s
+      rules:
+        - alert: AIOpsOOMKilledScenario
+          expr: kube_pod_container_status_last_terminated_reason{namespace="aiops-dev",pod=~"aiops-scenario-oom-.*",reason="OOMKilled"} == 1
+          for: 15s
+          labels:
+            severity: critical
+            namespace: aiops-dev
+            service: aiops-scenario-oom
+            environment: development
+            aiops_enabled: "true"
+            aiops_test: "true"
+          annotations:
+            summary: "AIOps 自动分析 OOMKilled 场景测试"
+            description: "隔离测试容器超过内存限制，用于验证自动发现终止原因、指标、事件和容器日志。"

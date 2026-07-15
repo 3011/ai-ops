@@ -1,0 +1,37 @@
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        hosts {
+           172.30.10.30 registry.k8s.internal
+           fallthrough
+        }
+        prometheus :9153
+        cache 30 {
+           disable success cluster.local
+           disable denial cluster.local
+        }
+        loop
+        reload
+        loadbalance
+    }
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"Corefile":".:53 {\n    errors\n    health {\n       lameduck 5s\n    }\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n       pods insecure\n       fallthrough in-addr.arpa ip6.arpa\n       ttl 30\n    }\n    hosts {\n       172.30.10.30 registry.k8s.internal\n       fallthrough\n    }\n    prometheus :9153\n    cache 30 {\n       disable success cluster.local\n       disable denial cluster.local\n    }\n    loop\n    reload\n    loadbalance\n}\n"},"kind":"ConfigMap","metadata":{"annotations":{},"name":"coredns","namespace":"kube-system"}}
+  creationTimestamp: "2026-07-10T12:14:24Z"
+  name: coredns
+  namespace: kube-system
+  resourceVersion: "17412"
+  uid: fe6e61c2-9e8d-47d2-8de9-e4188d82fe4c

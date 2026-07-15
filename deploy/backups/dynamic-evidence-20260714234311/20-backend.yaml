@@ -84,7 +84,6 @@ spec:
     metadata:
       labels: {app: aiops-worker}
     spec:
-      serviceAccountName: aiops-worker
       nodeSelector: {kubernetes.io/hostname: k8s-cp01}
       tolerations:
         - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}

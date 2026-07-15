@@ -90,19 +90,6 @@ function OriginTags({ item }: { item: any }) {
   )
 }
 
-function useTestDataVisibility() {
-  const [includeTest, setIncludeTest] = useState(() => window.localStorage.getItem('aiops.includeTest') === 'true')
-  const update = (value: boolean) => {
-    window.localStorage.setItem('aiops.includeTest', String(value))
-    setIncludeTest(value)
-  }
-  return [includeTest, update] as const
-}
-
-function TestDataToggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
-  return <Space size={6}><Typography.Text type="secondary">测试数据</Typography.Text><Switch size="small" checked={checked} onChange={onChange} /></Space>
-}
-
 function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   return (
     <div className="page-header">
@@ -173,15 +160,14 @@ function MetricChart({ evidence }: { evidence: any }) {
 
 function DashboardPage() {
   const navigate = useNavigate()
-  const [includeTest, setIncludeTest] = useTestDataVisibility()
   const summary = useQuery({
-    queryKey: ['dashboard-summary', includeTest],
-    queryFn: async () => (await api.get('/dashboard/summary', { params: { include_test: includeTest } })).data,
+    queryKey: ['dashboard-summary'],
+    queryFn: async () => (await api.get('/dashboard/summary')).data,
     refetchInterval: 15000,
   })
   const trend = useQuery({
-    queryKey: ['dashboard-trend', includeTest],
-    queryFn: async () => (await api.get('/dashboard/trend', { params: { hours: 24, include_test: includeTest } })).data,
+    queryKey: ['dashboard-trend'],
+    queryFn: async () => (await api.get('/dashboard/trend', { params: { hours: 24 } })).data,
     refetchInterval: 60000,
   })
   const data = summary.data || {}
@@ -190,9 +176,8 @@ function DashboardPage() {
       <PageHeader
         title="运维总览"
         subtitle="集中查看事件压力、AI 分析效果、任务积压和关键数据源状态。"
-        actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => { summary.refetch(); trend.refetch() }}>刷新</Button></>}
+        actions={<Button icon={<ReloadOutlined />} onClick={() => { summary.refetch(); trend.refetch() }}>刷新</Button>}
       />
-      {!includeTest && data.hidden_test_count > 0 && <Alert type="info" showIcon message={`生产视图已隐藏 ${data.hidden_test_count} 条测试事件`} description="打开右上角“测试数据”开关可查看自动化测试产生的事件，不会计入当前统计。" />}
       {summary.error && <Alert type="error" showIcon message="总览加载失败" description={apiErrorMessage(summary.error)} />}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}><Card className="stat-card stat-red"><Statistic title="未恢复事件" value={data.open_incidents || 0} prefix={<AlertOutlined />} /></Card></Col>
@@ -265,18 +250,29 @@ function DashboardPage() {
 
 function IncidentsPage() {
   const navigate = useNavigate()
-  const [includeTest, setIncludeTest] = useTestDataVisibility()
   const [draft, setDraft] = useState<any>({})
   const [filters, setFilters] = useState<any>({})
   const query = useQuery({
-    queryKey: ['incidents', filters, includeTest],
-    queryFn: async () => (await api.get('/incidents', { params: { ...filters, include_test: includeTest } })).data,
+    queryKey: ['incidents', filters],
+    queryFn: async () => (await api.get('/incidents', { params: filters })).data,
     refetchInterval: 10000,
   })
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <PageHeader title="事件中心" subtitle="查看聚合后的故障事件，并按状态、级别、集群和服务快速定位。" actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button></>} />
-      {!includeTest && query.data?.hidden_test_count > 0 && <Alert type="info" showIcon message={`已隐藏 ${query.data.hidden_test_count} 条测试事件`} description="默认只展示生产事件；打开“测试数据”开关可查看测试场景。" />}
+      <PageHeader title="事件中心" subtitle="查看聚合后的故障事件，并按状态、级别、集群和服务快速定位。" actions={<Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button>} />
+      {(() => {
+        const items = query.data?.items || []
+        const testCount = items.filter((item: any) => item.is_test).length
+        const productionCount = items.length - testCount
+        return testCount > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={`当前查询结果包含 ${testCount} 条测试事件`}
+            description={productionCount > 0 ? `另有 ${productionCount} 条非测试事件；测试事件已单独标注。` : '当前数据库尚无真实生产事故；现有事件用于验证 webhook、Alertmanager、证据采集和 AI 分析链路。'}
+          />
+        ) : null
+      })()}
       <Card className="filter-card">
         <Row gutter={[12, 12]}>
           <Col xs={24} md={8}><Input allowClear prefix={<SearchOutlined />} placeholder="搜索事件标题或分组键" value={draft.q} onChange={(e) => setDraft({ ...draft, q: e.target.value })} onPressEnter={() => setFilters(draft)} /></Col>
@@ -315,8 +311,6 @@ function IncidentsPage() {
 function AnalysisCard({ analysis }: { analysis: any }) {
   if (!analysis) return <Empty description="尚未生成分析记录" />
   const result = analysis.result || {}
-  const coverage = result.analysis_coverage || {}
-  const dynamicPlan = result.dynamic_query_plan || {}
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Alert type={analysis.error ? 'error' : 'info'} showIcon message={result.summary || '分析任务已完成'} description={analysis.error || undefined} />
@@ -326,37 +320,6 @@ function AnalysisCard({ analysis }: { analysis: any }) {
         <Descriptions.Item label="严重性判断">{result.severity_assessment || '-'}</Descriptions.Item>
         <Descriptions.Item label="完成时间">{formatTime(analysis.finished_at)}</Descriptions.Item>
       </Descriptions>
-      {coverage.score !== undefined && (
-        <Card size="small" className="coverage-card" title="自动分析覆盖度">
-          <Row gutter={[18, 12]} align="middle">
-            <Col xs={24} md={5}><Progress type="dashboard" percent={coverage.score || 0} status={coverage.score >= 75 ? 'success' : coverage.score >= 45 ? 'normal' : 'exception'} /></Col>
-            <Col xs={24} md={19}>
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                <div><Typography.Text strong>已采集数据源：</Typography.Text><Space wrap>{(coverage.collected_sources || []).map((item: string) => <Tag color="blue" key={item}>{item}</Tag>)}</Space></div>
-                <div><Typography.Text strong>自动发现目标：</Typography.Text><Space wrap>{(coverage.discovered_targets || []).length ? (coverage.discovered_targets || []).map((item: string) => <Tag color="cyan" key={item}>{item}</Tag>) : <Typography.Text type="secondary">未发现明确目标</Typography.Text>}</Space></div>
-                <Typography.Text type="secondary">证据 {coverage.successful_evidence || 0}/{coverage.evidence_count || 0} 成功；观察窗口{coverage.window_complete ? '完整' : '尚未结束，系统会自动补充分析'}。</Typography.Text>
-              </Space>
-            </Col>
-          </Row>
-          {(coverage.missing || []).length > 0 && <Alert className="inline-alert" type="warning" showIcon message="当前分析缺口" description={(coverage.missing || []).join('；')} />}
-        </Card>
-      )}
-      {(dynamicPlan.model || dynamicPlan.error || (dynamicPlan.accepted_prometheus || []).length || (dynamicPlan.accepted_loki || []).length) && (
-        <Card size="small" title="动态证据规划" extra={dynamicPlan.model ? <Tag color="geekblue">{dynamicPlan.model}</Tag> : null}>
-          <Row gutter={[16, 12]}>
-            <Col xs={24} lg={12}>
-              <Typography.Text strong>补充 PromQL</Typography.Text>
-              <List size="small" dataSource={dynamicPlan.accepted_prometheus || []} locale={{ emptyText: '未规划额外 PromQL' }} renderItem={(item: any) => <List.Item><div><Typography.Text code>{item.name}</Typography.Text><Typography.Paragraph type="secondary" style={{ margin: '4px 0 0' }}>{item.reason || item.query}</Typography.Paragraph></div></List.Item>} />
-            </Col>
-            <Col xs={24} lg={12}>
-              <Typography.Text strong>补充 LogQL</Typography.Text>
-              <List size="small" dataSource={dynamicPlan.accepted_loki || []} locale={{ emptyText: '未规划额外 LogQL' }} renderItem={(item: any) => <List.Item><div><Typography.Text code>{item.name}</Typography.Text><Typography.Paragraph type="secondary" style={{ margin: '4px 0 0' }}>{item.reason || item.query}</Typography.Paragraph></div></List.Item>} />
-            </Col>
-          </Row>
-          {(dynamicPlan.rejected || []).length > 0 && <Alert className="inline-alert" type="warning" showIcon message={`安全校验拒绝 ${dynamicPlan.rejected.length} 条查询`} description={(dynamicPlan.rejected || []).join('；')} />}
-          {dynamicPlan.error && <Alert className="inline-alert" type="warning" showIcon message="动态规划未完成" description={dynamicPlan.error} />}
-        </Card>
-      )}
       <div>
         <Typography.Title level={5}>根因假设</Typography.Title>
         {(result.root_cause_hypotheses || []).length ? (
@@ -390,53 +353,20 @@ function AnalysisCard({ analysis }: { analysis: any }) {
 }
 
 function EvidenceCard({ evidence }: { evidence: any }) {
-  const queryName = evidence.summary?.query_name || (evidence.source_type === 'kubernetes' ? '自动目标发现' : '日志证据')
-  const sourceColor = evidence.source_type === 'prometheus' ? 'blue' : evidence.source_type === 'kubernetes' ? 'cyan' : evidence.source_type === 'planner' ? 'geekblue' : 'purple'
-  const summary = evidence.summary || {}
+  const queryName = evidence.summary?.query_name || '日志证据'
   return (
-    <Card size="small" title={<Space><Tag color={sourceColor}>{evidence.source_type}</Tag><Typography.Text>{queryName}</Typography.Text></Space>} extra={`${evidence.duration_ms ?? '-'} ms`}>
+    <Card size="small" title={<Space><Tag color={evidence.source_type === 'prometheus' ? 'blue' : 'purple'}>{evidence.source_type}</Tag><Typography.Text>{queryName}</Typography.Text></Space>} extra={`${evidence.duration_ms ?? '-'} ms`}>
       <Descriptions size="small" column={1}>
         <Descriptions.Item label="时间窗口">{formatTime(evidence.query_start)} ～ {formatTime(evidence.query_end)}</Descriptions.Item>
-        <Descriptions.Item label="查询计划"><Typography.Text code copyable={{ text: evidence.query_text }}>{evidence.query_text}</Typography.Text></Descriptions.Item>
+        <Descriptions.Item label="查询语句"><Typography.Text code copyable={{ text: evidence.query_text }}>{evidence.query_text}</Typography.Text></Descriptions.Item>
       </Descriptions>
-      {evidence.error ? <Alert type="warning" showIcon message="数据源查询失败" description={evidence.error} /> : evidence.source_type === 'prometheus' ? <MetricChart evidence={evidence} /> : evidence.source_type === 'planner' ? (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
-            <Descriptions.Item label="规划模型">{summary.model || '-'}</Descriptions.Item>
-            <Descriptions.Item label="作用域">{[summary.scope?.namespace, summary.scope?.service, summary.scope?.node].filter(Boolean).join(' / ') || '-'}</Descriptions.Item>
-            <Descriptions.Item label="通过 PromQL">{(summary.accepted_prometheus || []).length}</Descriptions.Item>
-            <Descriptions.Item label="通过 LogQL">{(summary.accepted_loki || []).length}</Descriptions.Item>
-          </Descriptions>
-          <List size="small" bordered dataSource={[...(summary.accepted_prometheus || []).map((item: any) => ({ ...item, type: 'PromQL' })), ...(summary.accepted_loki || []).map((item: any) => ({ ...item, type: 'LogQL' }))]} locale={{ emptyText: '规划器判断无需额外查询' }} renderItem={(item: any) => <List.Item><Space direction="vertical" size={3} style={{ width: '100%' }}><Space><Tag>{item.type}</Tag><Typography.Text strong>{item.name}</Typography.Text></Space><Typography.Text code copyable={{ text: item.query }}>{item.query}</Typography.Text><Typography.Text type="secondary">{item.reason}</Typography.Text></Space></List.Item>} />
-          {(summary.rejected || []).length > 0 && <Alert type="warning" showIcon message="被安全策略拒绝的查询" description={(summary.rejected || []).join('；')} />}
-        </Space>
-      ) : evidence.source_type === 'kubernetes' ? (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
-            <Descriptions.Item label="命名空间">{summary.namespace || '-'}</Descriptions.Item>
-            <Descriptions.Item label="发现 Pod">{(summary.discovered_pods || []).length ? <Space wrap>{summary.discovered_pods.map((name: string) => <Tag color="cyan" key={name}>{name}</Tag>)}</Space> : '未发现'}</Descriptions.Item>
-            <Descriptions.Item label="工作负载">{(summary.workloads || []).length ? <Space wrap>{summary.workloads.map((item: any) => <Tag key={`${item.kind}/${item.name}`}>{item.kind}/{item.name}</Tag>)}</Space> : '-'}</Descriptions.Item>
-            <Descriptions.Item label="镜像">{(summary.images || []).length ? <Space direction="vertical" size={2}>{summary.images.map((image: string) => <Typography.Text code key={image}>{image}</Typography.Text>)}</Space> : '-'}</Descriptions.Item>
-          </Descriptions>
-          {(summary.issues || []).length > 0 && <Alert type="warning" showIcon message={`发现 ${summary.issues.length} 个异常信号`} description={<List size="small" dataSource={summary.issues.slice(0, 12)} renderItem={(item: string) => <List.Item>{item}</List.Item>} />} />}
-          {(summary.pods || []).length > 0 && <Table rowKey="name" size="small" pagination={false} dataSource={summary.pods} columns={[
-            { title: 'Pod', dataIndex: 'name' }, { title: '节点', dataIndex: 'node' }, { title: 'Phase', dataIndex: 'phase' },
-            { title: 'Ready', dataIndex: 'ready', width: 80, render: (value: boolean) => <Tag color={value ? 'green' : 'red'}>{value ? 'Yes' : 'No'}</Tag> },
-            { title: '重启', width: 80, render: (_: unknown, row: any) => (row.containers || []).reduce((sum: number, item: any) => sum + (item.restart_count || 0), 0) },
-          ]} />}
-          {(summary.events || []).length > 0 ? <Table rowKey={(row: any) => `${row.time}-${row.object_name}-${row.reason}`} size="small" pagination={{ pageSize: 8 }} dataSource={summary.events} columns={[
-            { title: '时间', dataIndex: 'time', width: 170, render: formatTime }, { title: '类型', dataIndex: 'type', width: 90, render: (value: string) => <Tag color={value === 'Warning' ? 'orange' : 'blue'}>{value}</Tag> },
-            { title: '对象', width: 190, render: (_: unknown, row: any) => `${row.object_kind || '-'}/${row.object_name || '-'}` }, { title: '原因', dataIndex: 'reason', width: 140 }, { title: '消息', dataIndex: 'message', ellipsis: true },
-          ]} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到 Kubernetes Events" />}
-        </Space>
-      ) : (
+      {evidence.error ? <Alert type="warning" showIcon message="数据源查询失败" description={evidence.error} /> : evidence.source_type === 'prometheus' ? <MetricChart evidence={evidence} /> : (
         <div>
           <Descriptions size="small" column={3}>
-            <Descriptions.Item label="日志行数">{summary.line_count || 0}</Descriptions.Item>
-            <Descriptions.Item label="日志流数">{summary.stream_count || 0}</Descriptions.Item>
-            <Descriptions.Item label="类型">{queryName}</Descriptions.Item>
+            <Descriptions.Item label="日志行数">{evidence.summary?.line_count || 0}</Descriptions.Item>
+            <Descriptions.Item label="日志流数">{evidence.summary?.stream_count || 0}</Descriptions.Item>
           </Descriptions>
-          {(summary.sample_lines || []).length ? <pre>{(summary.sample_lines || []).join('\n')}</pre> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到日志" />}
+          {(evidence.summary?.sample_lines || []).length ? <pre>{(evidence.summary.sample_lines || []).join('\n')}</pre> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到错误日志" />}
         </div>
       )}
     </Card>
@@ -457,11 +387,7 @@ function IncidentDetailPage() {
   const data = query.data
   const latestAnalysis = data.analyses?.[0]
   const latestEvidenceIds = new Set(latestAnalysis?.result?.evidence_refs || [])
-  const citedIds = new Set((latestAnalysis?.result?.root_cause_hypotheses || []).flatMap((item: any) => item.evidence_refs || []))
-  const latestEvidence = latestEvidenceIds.size ? (data.evidence || []).filter((item: any) => latestEvidenceIds.has(item.id)) : (data.evidence || [])
-  const visibleEvidence = citedIds.size
-    ? latestEvidence.filter((item: any) => citedIds.has(item.id) || item.source_type === 'kubernetes' || item.error).slice(0, 10)
-    : latestEvidence.sort((a: any, b: any) => (a.source_type === 'kubernetes' ? -1 : b.source_type === 'kubernetes' ? 1 : 0)).slice(0, 10)
+  const visibleEvidence = latestEvidenceIds.size ? (data.evidence || []).filter((item: any) => latestEvidenceIds.has(item.id)) : (data.evidence || []).slice(0, 5)
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Link to="/incidents">← 返回事件中心</Link>
@@ -502,14 +428,12 @@ function IncidentDetailPage() {
 }
 
 function RawAlertsPage() {
-  const [includeTest, setIncludeTest] = useTestDataVisibility()
   const [status, setStatus] = useState<string | undefined>()
   const [severity, setSeverity] = useState<string | undefined>()
-  const query = useQuery({ queryKey: ['alerts', status, severity, includeTest], queryFn: async () => (await api.get('/alerts', { params: { status, severity, include_test: includeTest } })).data, refetchInterval: 10000 })
+  const query = useQuery({ queryKey: ['alerts', status, severity], queryFn: async () => (await api.get('/alerts', { params: { status, severity } })).data, refetchInterval: 10000 })
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <PageHeader title="原始告警" subtitle="Alertmanager 告警实例的完整生命周期，便于核对聚合前的原始信号。" actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button></>} />
-      {!includeTest && query.data?.hidden_test_count > 0 && <Alert type="info" showIcon message={`已隐藏 ${query.data.hidden_test_count} 条测试告警`} />}
+      <PageHeader title="原始告警" subtitle="Alertmanager 告警实例的完整生命周期，便于核对聚合前的原始信号。" actions={<Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button>} />
       <Card className="filter-card"><Space wrap><Select allowClear placeholder="状态" value={status} onChange={setStatus} options={['firing', 'resolved'].map((value) => ({ value, label: value }))} /><Select allowClear placeholder="级别" value={severity} onChange={setSeverity} options={['critical', 'warning', 'info'].map((value) => ({ value, label: value }))} /><Typography.Text type="secondary">共 {query.data?.total || 0} 条</Typography.Text></Space></Card>
       <Card><Table rowKey="id" loading={query.isLoading} dataSource={query.data?.items || []} pagination={{ pageSize: 20 }} columns={[
         { title: '告警名', dataIndex: 'alertname' },
@@ -526,12 +450,10 @@ function RawAlertsPage() {
 }
 
 function DeliveriesPage() {
-  const [includeTest, setIncludeTest] = useTestDataVisibility()
-  const query = useQuery({ queryKey: ['deliveries', includeTest], queryFn: async () => (await api.get('/webhook-deliveries', { params: { include_test: includeTest } })).data, refetchInterval: 10000 })
+  const query = useQuery({ queryKey: ['deliveries'], queryFn: async () => (await api.get('/webhook-deliveries')).data, refetchInterval: 10000 })
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <PageHeader title="Webhook 投递" subtitle="审计 Alertmanager 每一次 HTTP 投递、关联事件和处理结果。" actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button></>} />
-      {!includeTest && query.data?.hidden_test_count > 0 && <Alert type="info" showIcon message={`已隐藏 ${query.data.hidden_test_count} 次测试投递`} />}
+      <PageHeader title="Webhook 投递" subtitle="审计 Alertmanager 每一次 HTTP 投递、关联事件和处理结果。" actions={<Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button>} />
       <Card><Table rowKey="id" loading={query.isLoading} dataSource={query.data?.items || []} pagination={{ pageSize: 20 }} columns={[
         { title: 'ID', dataIndex: 'id', width: 70 },
         { title: '状态', dataIndex: 'status', width: 95, render: (value) => <StatusTag value={value} /> },
@@ -546,12 +468,10 @@ function DeliveriesPage() {
 }
 
 function JobsPage() {
-  const [includeTest, setIncludeTest] = useTestDataVisibility()
-  const query = useQuery({ queryKey: ['analysis-jobs', includeTest], queryFn: async () => (await api.get('/analysis-jobs', { params: { include_test: includeTest } })).data, refetchInterval: 5000 })
+  const query = useQuery({ queryKey: ['analysis-jobs'], queryFn: async () => (await api.get('/analysis-jobs')).data, refetchInterval: 5000 })
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <PageHeader title="分析任务" subtitle="查看 Outbox Worker 的领取、重试、完成和死信状态。" actions={<><TestDataToggle checked={includeTest} onChange={setIncludeTest} /><Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button></>} />
-      {!includeTest && query.data?.hidden_test_count > 0 && <Alert type="info" showIcon message={`已隐藏 ${query.data.hidden_test_count} 个测试任务`} />}
+      <PageHeader title="分析任务" subtitle="查看 Outbox Worker 的领取、重试、完成和死信状态。" actions={<Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button>} />
       <Card><Table rowKey="id" loading={query.isLoading} dataSource={query.data?.items || []} pagination={{ pageSize: 20 }} columns={[
         { title: '任务 ID', dataIndex: 'id', width: 90 },
         { title: '事件', dataIndex: 'incident_id', width: 90, render: (id) => id ? <Link to={`/incidents/${id}`}>#{id}</Link> : '-' },

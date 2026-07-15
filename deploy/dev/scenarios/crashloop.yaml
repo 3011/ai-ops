@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-crashloop
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-crashloop
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-crashloop
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-crashloop
+        app.kubernetes.io/name: aiops-scenario-crashloop
+        aiops_test: "true"
+    spec:
+      containers:
+        - name: crashloop
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - 'echo "fatal: simulated startup failure for AIOps evidence test"; sleep 2; exit 17'
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-scenario-crashloop
+  namespace: aiops-dev
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: aiops-scenario-crashloop
+      interval: 15s
+      rules:
+        - alert: AIOpsCrashLoopScenario
+          expr: increase(kube_pod_container_status_restarts_total{namespace="aiops-dev",pod=~"aiops-scenario-crashloop-.*"}[2m]) > 0
+          for: 15s
+          labels:
+            severity: warning
+            namespace: aiops-dev
+            service: aiops-scenario-crashloop
+            environment: development
+            aiops_enabled: "true"
+            aiops_test: "true"
+          annotations:
+            summary: "AIOps 自动分析 CrashLoop 场景测试"
+            description: "隔离测试工作负载持续退出，用于验证无需告警模板的 Kubernetes 自动证据发现。"
