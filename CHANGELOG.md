@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0-dev.4 - 冻结调查输入与历史 Replay 适配
+
+- 在 `InvestigationAnalysisRun` 创建时写入不可变 `run_input_json`、Schema、来源 Hash 和来源模式。
+- Snapshot 不再读取当前 Incident 状态，后续告警、标签和 resolved 变化不会改变旧 Run 输入。
+- 新增 PostgreSQL 不可变触发器，冻结输入首次写入后禁止修改。
+- 新增 `native_frozen`、`historical_reconstructed`、`legacy_incomplete` 三种来源模式。
+- 新增 0.8.x 与 0.9.0-dev.1 历史输入适配器，并按 Run 开始时间截断历史告警集合。
+- 真实旧版 ToolResult/Finding 契约不一致继续保持 `INVALID`，并标记 `legacy_contract_violation=true`。
+
 ## 0.9.0-dev.3 - Snapshot Replay 与结果校验
 
 - 新增不可变的模型可见 Replay Snapshot，不保存 Kubernetes、Prometheus 或 Loki 原始响应正文；

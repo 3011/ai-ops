@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import hashlib
-import json
 import re
 from typing import Any, Literal
 
@@ -14,6 +12,7 @@ from app.investigation.catalog import TOOL_CATALOG_VERSION, build_default_regist
 from app.investigation.contracts import DiagnosisResultContract, InvestigationBudget, ToolResult
 from app.investigation.enums import InvestigationStatus, StopReason, ToolStatus
 from app.investigation.resolver import resolve_target_context
+from app.investigation.run_input import freeze_run_input
 from app.investigation.replay import create_replay_snapshot
 from app.investigation.tool_runtime import ToolRuntime
 from app.models import (
@@ -27,7 +26,7 @@ from app.models import (
 
 OOM_ENGINE = "deterministic_oom_v2"
 CPU_ENGINE = "deterministic_cpu_v1"
-ENGINE_VERSION = "0.9.0-dev.3"
+ENGINE_VERSION = "0.9.0-dev.4"
 _OOM_TOKEN = re.compile(r"\b(?:oomkilled|oom[\s_-]?kill(?:ed)?|out[\s_-]+of[\s_-]+memory)\b", re.IGNORECASE)
 _OOM_ALERTNAMES = {
     "containeroomkilled",
@@ -50,11 +49,6 @@ _CPU_ALERTNAMES = {
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
-
-
-def _snapshot_hash(value: Any) -> str:
-    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _normalized_alertname(value: str) -> str:
@@ -188,25 +182,6 @@ async def _finding_types(session, finding_ids: list[str]) -> dict[str, Investiga
     return {row.finding_type: row for row in rows}
 
 
-def _input_snapshot(incident: Incident, alerts: list[AlertInstance], mode: str) -> dict[str, Any]:
-    return {
-        "mode": mode,
-        "tool_catalog_version": TOOL_CATALOG_VERSION,
-        "incident_id": incident.id,
-        "incident_labels": incident.labels or {},
-        "first_seen_at": incident.first_seen_at.isoformat(),
-        "alerts": [
-            {
-                "id": alert.id,
-                "alertname": alert.alertname,
-                "labels": alert.labels or {},
-                "starts_at": alert.starts_at.isoformat(),
-            }
-            for alert in alerts
-        ],
-    }
-
-
 async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -> int | None:
     async with SessionLocal() as session:
         incident, alerts = await _load_incident(session, incident_id)
@@ -227,10 +202,16 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
             degradation_reasons=[],
             engine=engine,
             engine_version=ENGINE_VERSION,
-            input_snapshot_hash=_snapshot_hash(_input_snapshot(incident, alerts, mode)),
             budget_json=budget.model_dump(mode="json"),
             budget_usage_json=ledger.snapshot().model_dump(mode="json"),
             started_at=started_at,
+        )
+        freeze_run_input(
+            run,
+            incident,
+            alerts,
+            candidate_mode=mode,
+            tool_catalog_version=TOOL_CATALOG_VERSION,
         )
         session.add(run)
         await session.flush()

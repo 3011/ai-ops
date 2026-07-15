@@ -38,9 +38,9 @@ data:
   INVESTIGATION_RAW_JSON_MAX_BYTES: "65536"
   INVESTIGATION_COLLECTION_MAX_ITEMS: "200"
   INVESTIGATION_STRING_MAX_CHARS: "4000"
-  APP_VERSION: "0.9.0-dev.3"
-  APP_RELEASE_TITLE: "Snapshot Replay 与结果校验"
-  APP_RELEASE_SUMMARY: "新增不可变模型可见快照、离线重放和确定性结果校验，Agent 仍未启用。"
-  APP_RELEASE_CHANGES: '["模型可见 Snapshot Replay","Result Validator 身份与作用域校验","ToolExecution/Finding/Diagnosis 引用一致性","Finding 类型白名单","日志不可信标记验证","历史 Run 离线回填","事件详情 Replay UI"]'
+  APP_VERSION: "0.9.0-dev.4"
+  APP_RELEASE_TITLE: "冻结调查输入与历史 Replay 适配"
+  APP_RELEASE_SUMMARY: "在 AnalysisRun 创建时冻结真实输入，并使用版本化适配器恢复 0.8.x/0.9.x 历史 Replay。"
+  APP_RELEASE_CHANGES: '["AnalysisRun 原生输入冻结","数据库不可变触发器","native_frozen/historical_reconstructed/legacy_incomplete 来源模式","0.8.x 与 0.9.x 历史输入适配","Incident 后续变化不影响旧 Snapshot","真实 legacy contract violation 保留"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

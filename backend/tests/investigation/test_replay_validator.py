@@ -32,13 +32,20 @@ def valid_payload() -> dict:
         "tool_catalog_version": "0.9.0-dev.2",
         "raw_data_included": False,
         "run_input": run_input,
+        "run_input_schema_version": "1.0.0",
         "run_input_source_hash": stable_hash(run_input),
+        "run_input_compatibility_hash": stable_hash(run_input),
+        "run_input_source_mode": "native_frozen",
         "incident_context": {"id": 1, "alerts": []},
         "analysis_run": {
             "id": 10, "incident_id": 1, "status": "COMPLETED_PARTIAL",
             "stop_reason": "AGENT_NOT_ENABLED", "degradation_reasons": ["AGENT_NOT_ENABLED"],
             "engine": "deterministic_cpu_v1", "engine_version": "0.9.0-dev.2",
-            "input_snapshot_hash": stable_hash(run_input), "target_context": target,
+            "input_snapshot_hash": stable_hash(run_input),
+            "run_input_schema_version": "1.0.0",
+            "run_input_source_hash": stable_hash(run_input),
+            "run_input_source_mode": "native_frozen",
+            "target_context": target,
             "budget": {}, "budget_usage": {}, "started_at": "2026-07-15T10:00:00Z",
             "completed_at": "2026-07-15T10:01:00Z",
         },
@@ -78,6 +85,14 @@ class ReplayValidatorTests(unittest.TestCase):
         report = self.validate(valid_payload())
         self.assertEqual(report.status, "VALID")
         self.assertFalse(report.errors)
+
+
+    def test_run_input_body_hash_tampering_is_invalid(self):
+        payload = valid_payload()
+        payload["run_input"]["incident_id"] = 999
+        report = self.validate(payload)
+        self.assertEqual(report.status, "INVALID")
+        self.assertIn("RUN_INPUT_PAYLOAD_HASH_MISMATCH", {item.code for item in report.errors})
 
     def test_uid_tampering_is_invalid(self):
         payload = valid_payload()

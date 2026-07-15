@@ -107,6 +107,8 @@ if oom_row:
         and {"get_container_termination_status", "get_memory_usage_vs_limit"}.issubset({item.get("tool_name") for item in tools})
         and any((item.get("structured_output") or {}).get("peak_limit_ratio") is not None for item in tools if item.get("tool_name") == "get_memory_usage_vs_limit")
         and all(bool(item.get("raw_artifact_hash")) for item in tools)
+        and trusted.get("run_input_source_mode") == "native_frozen"
+        and bool(trusted.get("run_input_source_hash"))
         and replay.get("validation_status") in {"VALID", "VALID_WITH_WARNINGS"},
         f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
@@ -163,6 +165,8 @@ if cpu_row:
         and trusted.get("budget_usage", {}).get("tool_calls_used") == 7
         and trusted.get("budget_usage", {}).get("total_cost_units_used") == 23
         and all(bool(item.get("raw_artifact_hash")) for item in tools)
+        and trusted.get("run_input_source_mode") == "native_frozen"
+        and bool(trusted.get("run_input_source_hash"))
         and replay.get("validation_status") in {"VALID", "VALID_WITH_WARNINGS"},
         f"trusted CPU: run={(trusted or {}).get('status')} findings={sorted(types)} tools={sorted(tool_names)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))

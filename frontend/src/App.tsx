@@ -608,6 +608,8 @@ function TrustedInvestigationPanel({ runs, onReplay, replaying, canReplay }: { r
           <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
             <Descriptions.Item label="校验状态"><Tag color={color}>{snapshot.validation_status}</Tag></Descriptions.Item>
             <Descriptions.Item label="Schema / Validator">{snapshot.snapshot_version} / {report.validator_version || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Run 输入来源"><Tag color={(run.run_input_source_mode || snapshot.run_input_source_mode) === 'native_frozen' ? 'green' : (run.run_input_source_mode || snapshot.run_input_source_mode) === 'historical_reconstructed' ? 'blue' : 'gold'}>{run.run_input_source_mode || snapshot.run_input_source_mode || 'legacy'}</Tag></Descriptions.Item>
+            <Descriptions.Item label="Run 输入 Schema">{run.run_input_schema_version || snapshot.run_input_schema_version || '-'}</Descriptions.Item>
             <Descriptions.Item label="Snapshot Hash"><Typography.Text code copyable>{snapshot.snapshot_hash}</Typography.Text></Descriptions.Item>
             <Descriptions.Item label="Source Hash"><Typography.Text code copyable>{snapshot.source_hash}</Typography.Text></Descriptions.Item>
             <Descriptions.Item label="生成时间">{formatTime(snapshot.created_at)}</Descriptions.Item>
@@ -615,6 +617,7 @@ function TrustedInvestigationPanel({ runs, onReplay, replaying, canReplay }: { r
           </Descriptions>
           {errors.length > 0 && <Alert type="error" showIcon message={`重放校验失败：${errors.length} 项`} description={<List size="small" dataSource={errors} renderItem={(item: any) => <List.Item><Space direction="vertical" size={0}><strong>{item.code}</strong><Typography.Text type="secondary">{item.path} · {item.message}</Typography.Text></Space></List.Item>} />} />}
           {warnings.length > 0 && <Alert type="warning" showIcon message={`重放校验警告：${warnings.length} 项`} description={<List size="small" dataSource={warnings} renderItem={(item: any) => <List.Item><Space direction="vertical" size={0}><strong>{item.code}</strong><Typography.Text type="secondary">{item.path} · {item.message}</Typography.Text></Space></List.Item>} />} />}
+          {report.legacy_contract_violation && <Alert type="error" showIcon message="检测到历史契约违规" description="该 INVALID 来自旧版已持久化的 ToolResult、Finding 或 Diagnosis 引用不一致，不会被兼容为通过。" />}
           {snapshot.validation_status === 'VALID' && <Alert type="success" showIcon message="该调查可从持久化的模型可见输入完整重放" description="重放未访问 Kubernetes、Prometheus 或 Loki，且 UID、作用域、Finding、ToolExecution 与 Diagnosis 引用一致。" />}
         </Space>
       })() : <Alert type="info" showIcon message="当前 Run 尚未生成 Replay Snapshot" description="历史 Run 可通过重新重放校验生成快照；新 Run 会在完成时自动生成。" />}

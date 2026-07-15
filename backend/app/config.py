@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str | None = None
     session_hours: int = 8
     cookie_secure: bool = False
-    app_version: str = "0.9.0-dev.3"
-    app_release_title: str = "Snapshot Replay 与结果校验"
-    app_release_summary: str = "新增不可变模型可见快照、离线重放和确定性结果校验，Agent 仍未启用。"
-    app_release_changes: str = '["模型可见 Snapshot Replay","Result Validator 身份与作用域校验","ToolExecution/Finding/Diagnosis 引用一致性","Finding 类型白名单","日志不可信标记验证","历史 Run 离线回填","事件详情 Replay UI"]'
+    app_version: str = "0.9.0-dev.4"
+    app_release_title: str = "冻结调查输入与历史 Replay 适配"
+    app_release_summary: str = "在 AnalysisRun 创建时冻结真实输入，并使用版本化适配器恢复 0.8.x/0.9.x 历史 Replay。"
+    app_release_changes: str = '["AnalysisRun 原生输入冻结","数据库不可变触发器","native_frozen/historical_reconstructed/legacy_incomplete 来源模式","0.8.x 与 0.9.x 历史输入适配","Incident 后续变化不影响旧 Snapshot","真实 legacy contract violation 保留"]'
     git_commit: str = ""
     investigation_raw_json_max_bytes: int = 65_536
     investigation_collection_max_items: int = 200

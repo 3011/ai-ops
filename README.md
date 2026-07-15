@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.9.0-dev.3`
+- 当前 API：`0.9.0-dev.4`
 
 ## 核心链路
 
@@ -275,3 +275,7 @@ Validator 检查：
 - 确定性模式不得写入模型假设。
 
 结果状态为 `VALID`、`VALID_WITH_WARNINGS` 或 `INVALID`。校验失败不会改写原始 Finding，也不会被解释为“没有异常”。Agent Runtime 仍未启用。
+
+## 0.9.0-dev.4 Gate 4.1
+
+每个新可信调查在创建 `AnalysisRun` 时立即冻结模型可见输入，写入 `run_input_json`、Schema Version、来源 Hash 和 `native_frozen` 标识。Snapshot Replay 只读取冻结输入，不会因 Incident 后续新增告警、标签变化或 resolved 状态变化而漂移。旧 Run 通过版本化 adapter 和 Run 开始时间截止恢复为 `historical_reconstructed`；无法精确恢复时标记 `legacy_incomplete`。数据库触发器禁止已冻结输入被更新。

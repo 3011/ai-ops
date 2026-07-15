@@ -11,12 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.investigation.artifacts import redact_sensitive
 from app.investigation.catalog import TOOL_CATALOG_VERSION, build_default_registry
-from app.investigation.contracts import TargetContext
+from app.investigation.run_input import incident_context_from_run_input, resolve_run_input
 from app.investigation.tool_runtime import stable_hash
 from app.models import (
-    AlertInstance,
     Incident,
-    IncidentAlert,
     InvestigationAnalysisRun,
     InvestigationDiagnosisResult,
     InvestigationFinding,
@@ -24,8 +22,8 @@ from app.models import (
     InvestigationToolExecution,
 )
 
-SNAPSHOT_SCHEMA_VERSION = "1.0.0"
-VALIDATOR_VERSION = "1.0.0"
+SNAPSHOT_SCHEMA_VERSION = "1.1.0"
+VALIDATOR_VERSION = "1.1.0"
 MAX_SNAPSHOT_BYTES = 512 * 1024
 
 ValidationSeverity = Literal["error", "warning"]
@@ -49,6 +47,7 @@ class ReplayValidationReport(BaseModel):
     checks: dict[str, bool] = Field(default_factory=dict)
     errors: list[ValidationIssue] = Field(default_factory=list)
     warnings: list[ValidationIssue] = Field(default_factory=list)
+    legacy_contract_violation: bool = False
 
 
 TOOL_FINDING_TYPES: dict[str, set[str]] = {
@@ -94,29 +93,6 @@ def _identity(value: dict[str, Any] | None) -> dict[str, Any]:
     return {key: value.get(key) for key in TARGET_IDENTITY_FIELDS}
 
 
-def _mode_for_engine(engine: str) -> str:
-    return "oom" if engine.startswith("deterministic_oom") else "cpu"
-
-
-def _input_snapshot(incident: Incident, alerts: list[AlertInstance], run: InvestigationAnalysisRun) -> dict[str, Any]:
-    return {
-        "mode": _mode_for_engine(run.engine),
-        "tool_catalog_version": run.engine_version,
-        "incident_id": incident.id,
-        "incident_labels": incident.labels or {},
-        "first_seen_at": incident.first_seen_at.isoformat(),
-        "alerts": [
-            {
-                "id": alert.id,
-                "alertname": alert.alertname,
-                "labels": alert.labels or {},
-                "starts_at": alert.starts_at.isoformat(),
-            }
-            for alert in alerts
-        ],
-    }
-
-
 def _contains_forbidden_key(value: Any, path: str = "$") -> list[str]:
     found: list[str] = []
     if isinstance(value, dict):
@@ -154,10 +130,44 @@ class ResultValidator:
             issue("RAW_DATA_EXPOSED", path, "重放快照不得包含原始数据源响应。")
 
         reconstructed = payload.get("run_input") or {}
-        actual_input_hash = str(payload.get("run_input_source_hash") or stable_hash(reconstructed))
-        checks["input_snapshot_hash"] = not expected_input_hash or actual_input_hash == expected_input_hash
-        if expected_input_hash and actual_input_hash != expected_input_hash:
-            issue("INPUT_SNAPSHOT_HASH_MISMATCH", "$.run_input", "重建输入与 AnalysisRun.input_snapshot_hash 不一致。")
+        computed_input_hash = stable_hash(reconstructed)
+        declared_input_hash = str(payload.get("run_input_source_hash") or computed_input_hash)
+        compatibility_hash = str(payload.get("run_input_compatibility_hash") or declared_input_hash)
+        checks["run_input_payload_hash"] = computed_input_hash == declared_input_hash
+        if not checks["run_input_payload_hash"]:
+            issue("RUN_INPUT_PAYLOAD_HASH_MISMATCH", "$.run_input_source_hash", "Run input 正文与声明 Hash 不一致。")
+        source_mode = str(payload.get("run_input_source_mode") or "legacy_incomplete")
+        checks["run_input_source_mode"] = source_mode in {
+            "native_frozen", "historical_reconstructed", "legacy_incomplete"
+        }
+        if not checks["run_input_source_mode"]:
+            issue("RUN_INPUT_SOURCE_MODE_INVALID", "$.run_input_source_mode", "Run input source mode 不受支持。")
+        checks["input_snapshot_hash"] = not expected_input_hash or compatibility_hash == expected_input_hash
+        if expected_input_hash and compatibility_hash != expected_input_hash:
+            if source_mode == "legacy_incomplete":
+                issue(
+                    "LEGACY_INPUT_INCOMPLETE",
+                    "$.run_input",
+                    "旧 Run 缺少原生冻结输入，现有历史字段不足以精确恢复原始输入。",
+                    "warning",
+                )
+            else:
+                issue("INPUT_SNAPSHOT_HASH_MISMATCH", "$.run_input", "冻结或历史重建输入与 AnalysisRun 输入 Hash 不一致。")
+        if source_mode == "legacy_incomplete" and (not expected_input_hash or compatibility_hash == expected_input_hash):
+            issue(
+                "LEGACY_INPUT_INCOMPLETE",
+                "$.run_input",
+                "旧 Run 缺少原生冻结输入，只能提供有限历史重建。",
+                "warning",
+            )
+        if source_mode == "native_frozen" and not payload.get("run_input_schema_version"):
+            issue("FROZEN_INPUT_SCHEMA_MISSING", "$.run_input_schema_version", "原生冻结输入缺少 Schema Version。")
+        run_metadata = payload.get("analysis_run") or {}
+        if source_mode == "native_frozen":
+            if run_metadata.get("run_input_source_hash") != declared_input_hash:
+                issue("FROZEN_INPUT_HASH_METADATA_MISMATCH", "$.analysis_run.run_input_source_hash", "AnalysisRun 冻结 Hash 与 Snapshot 输入不一致。")
+            if run_metadata.get("run_input_source_mode") != "native_frozen":
+                issue("FROZEN_INPUT_MODE_METADATA_MISMATCH", "$.analysis_run.run_input_source_mode", "AnalysisRun 未标记为 native_frozen。")
 
         run = payload.get("analysis_run") or {}
         target = run.get("target_context") or {}
@@ -256,7 +266,16 @@ class ResultValidator:
             issue("SNAPSHOT_TOO_LARGE", "$", f"模型可见快照 {size} bytes 超过 {MAX_SNAPSHOT_BYTES} bytes 上限。")
 
         status: ValidationStatus = "INVALID" if errors else "VALID_WITH_WARNINGS" if warnings else "VALID"
-        return ReplayValidationReport(status=status, checks=checks, errors=errors, warnings=warnings)
+        legacy_contract_violation = any(item.code in {
+            "TOOL_FINDING_REF_MISMATCH", "DIAGNOSIS_DANGLING_FACT_REF", "DIAGNOSIS_FACT_SET_MISMATCH"
+        } for item in errors)
+        return ReplayValidationReport(
+            status=status,
+            checks=checks,
+            errors=errors,
+            warnings=warnings,
+            legacy_contract_violation=legacy_contract_violation,
+        )
 
 
 async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> tuple[dict[str, Any], str | None]:
@@ -266,12 +285,7 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
     incident = await session.get(Incident, run.incident_id)
     if incident is None:
         raise LookupError(f"incident not found: {run.incident_id}")
-    alerts = list((await session.scalars(
-        select(AlertInstance)
-        .join(IncidentAlert, IncidentAlert.alert_instance_id == AlertInstance.id)
-        .where(IncidentAlert.incident_id == run.incident_id)
-        .order_by(AlertInstance.starts_at, AlertInstance.id)
-    )).all())
+    resolved_input = await resolve_run_input(session, run, incident)
     tools = list((await session.scalars(
         select(InvestigationToolExecution)
         .where(InvestigationToolExecution.analysis_run_id == run.id)
@@ -283,33 +297,18 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
         .order_by(InvestigationFinding.created_at, InvestigationFinding.id)
     )).all())
     diagnosis = await session.get(InvestigationDiagnosisResult, run.id)
-    run_input = _input_snapshot(incident, alerts, run)
+    run_input = resolved_input.payload
     target_context = redact_sensitive(run.target_context_json or {})
     payload = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "tool_catalog_version": TOOL_CATALOG_VERSION,
         "raw_data_included": False,
         "run_input": redact_sensitive(run_input),
-        "run_input_source_hash": stable_hash(run_input),
-        "incident_context": redact_sensitive({
-            "id": incident.id,
-            "title": incident.title,
-            "status": incident.status,
-            "labels": incident.labels or {},
-            "first_seen_at": incident.first_seen_at.isoformat(),
-            "last_seen_at": incident.last_seen_at.isoformat(),
-            "resolved_at": incident.resolved_at.isoformat() if incident.resolved_at else None,
-            "alerts": [{
-                "id": alert.id,
-                "alertname": alert.alertname,
-                "status": alert.status,
-                "severity": alert.severity,
-                "labels": alert.labels or {},
-                "annotations": alert.annotations or {},
-                "starts_at": alert.starts_at.isoformat(),
-                "ends_at": alert.ends_at.isoformat() if alert.ends_at else None,
-            } for alert in alerts],
-        }),
+        "run_input_schema_version": resolved_input.schema_version,
+        "run_input_source_hash": resolved_input.source_hash,
+        "run_input_compatibility_hash": resolved_input.compatibility_hash,
+        "run_input_source_mode": resolved_input.source_mode,
+        "incident_context": redact_sensitive(incident_context_from_run_input(run_input)),
         "analysis_run": {
             "id": run.id,
             "incident_id": run.incident_id,
@@ -319,6 +318,9 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
             "engine": run.engine,
             "engine_version": run.engine_version,
             "input_snapshot_hash": run.input_snapshot_hash,
+            "run_input_schema_version": run.run_input_schema_version,
+            "run_input_source_hash": run.run_input_source_hash,
+            "run_input_source_mode": run.run_input_source_mode,
             "target_context": target_context,
             "budget": run.budget_json or {},
             "budget_usage": run.budget_usage_json or {},
@@ -367,7 +369,7 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
             "validated_output": redact_sensitive(diagnosis.validated_output_json or {}),
         } if diagnosis else {}),
     }
-    return payload, run.input_snapshot_hash
+    return payload, resolved_input.expected_hash
 
 
 async def create_replay_snapshot(session: AsyncSession, analysis_run_id: int) -> InvestigationReplaySnapshot:
@@ -455,6 +457,9 @@ def replay_snapshot_payload(row: InvestigationReplaySnapshot, *, include_snapsho
         "snapshot_hash": row.snapshot_hash,
         "validation_status": row.validation_status,
         "validation_report": row.validation_report_json or {},
+        "run_input_source_mode": (row.snapshot_json or {}).get("run_input_source_mode"),
+        "run_input_schema_version": (row.snapshot_json or {}).get("run_input_schema_version"),
+        "run_input_source_hash": (row.snapshot_json or {}).get("run_input_source_hash"),
         "created_at": row.created_at,
     }
     if include_snapshot:
