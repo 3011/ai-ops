@@ -5,10 +5,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.investigation.replay import replay_snapshot_payload
 from app.models import (
     InvestigationAnalysisRun,
     InvestigationDiagnosisResult,
     InvestigationFinding,
+    InvestigationReplaySnapshot,
     InvestigationToolExecution,
 )
 
@@ -44,6 +46,12 @@ async def investigation_payloads(
             )
         ).all()
         diagnosis = await session.get(InvestigationDiagnosisResult, run.id)
+        replay_snapshot = await session.scalar(
+            select(InvestigationReplaySnapshot)
+            .where(InvestigationReplaySnapshot.analysis_run_id == run.id)
+            .order_by(InvestigationReplaySnapshot.created_at.desc(), InvestigationReplaySnapshot.id.desc())
+            .limit(1)
+        )
         payloads.append(
             {
                 "id": run.id,
@@ -98,6 +106,7 @@ async def investigation_payloads(
                     }
                     for finding in findings
                 ],
+                "replay_snapshot": replay_snapshot_payload(replay_snapshot) if replay_snapshot else None,
                 "diagnosis": (
                     {
                         "summary": diagnosis.summary,

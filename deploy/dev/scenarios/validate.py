@@ -88,6 +88,7 @@ if oom_row:
     target = (trusted or {}).get("target_context") or {}
     findings = (trusted or {}).get("findings") or []
     tools = (trusted or {}).get("tool_executions") or []
+    replay = (trusted or {}).get("replay_snapshot") or {}
     oom_finding = next((item for item in findings if item.get("finding_type") == "container_oom_killed"), None)
     tool_ids = {item.get("id") for item in tools}
     checks.append((
@@ -105,7 +106,8 @@ if oom_row:
         and oom_finding.get("id") in ((next(item for item in tools if item.get("tool_name") == "get_container_termination_status").get("result_summary") or {}).get("finding_ids") or [])
         and {"get_container_termination_status", "get_memory_usage_vs_limit"}.issubset({item.get("tool_name") for item in tools})
         and any((item.get("structured_output") or {}).get("peak_limit_ratio") is not None for item in tools if item.get("tool_name") == "get_memory_usage_vs_limit")
-        and all(bool(item.get("raw_artifact_hash")) for item in tools),
+        and all(bool(item.get("raw_artifact_hash")) for item in tools)
+        and replay.get("validation_status") in {"VALID", "VALID_WITH_WARNINGS"},
         f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
 else:
@@ -146,6 +148,7 @@ if cpu_row:
     tools = (trusted or {}).get("tool_executions") or []
     types = {item.get("finding_type") for item in findings}
     tool_names = {item.get("tool_name") for item in tools}
+    replay = (trusted or {}).get("replay_snapshot") or {}
     checks.append((
         bool(trusted)
         and trusted.get("status") == "COMPLETED_PARTIAL"
@@ -159,7 +162,8 @@ if cpu_row:
         }.issubset(tool_names)
         and trusted.get("budget_usage", {}).get("tool_calls_used") == 7
         and trusted.get("budget_usage", {}).get("total_cost_units_used") == 23
-        and all(bool(item.get("raw_artifact_hash")) for item in tools),
+        and all(bool(item.get("raw_artifact_hash")) for item in tools)
+        and replay.get("validation_status") in {"VALID", "VALID_WITH_WARNINGS"},
         f"trusted CPU: run={(trusted or {}).get('status')} findings={sorted(types)} tools={sorted(tool_names)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
 else:
@@ -175,6 +179,7 @@ if gate3_row:
     types = {item.get("finding_type") for item in findings}
     tool_names = {item.get("tool_name") for item in tools}
     by_name = {item.get("tool_name"): item for item in tools}
+    replay = (trusted or {}).get("replay_snapshot") or {}
     fact_refs = set(((trusted or {}).get("diagnosis") or {}).get("fact_refs") or [])
     required_tools = {
         "get_cpu_usage_vs_request_limit", "get_cpu_throttling",
@@ -212,7 +217,8 @@ if gate3_row:
         and red_data.get("error_rate_increased") is True
         and red_data.get("latency_increased") is True
         and {item.get("id") for item in findings}.issubset(fact_refs)
-        and all(bool(item.get("raw_artifact_hash")) for item in tools),
+        and all(bool(item.get("raw_artifact_hash")) for item in tools)
+        and replay.get("validation_status") == "VALID",
         f"trusted Gate 3: run={(trusted or {}).get('status')} tools={sorted(tool_names)} findings={sorted(types)} restart={restart_data.get('window_restart_delta')} rollout={rollout_data.get('revision_changed')} injection={log_data.get('prompt_injection_redacted_count')} replicas={replica_data.get('replica_count')}/{replica_data.get('anomalous_replica_count')} red={red_data.get('profile')}",
     ))
 else:

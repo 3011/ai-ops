@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.9.0-dev.2`
+- 当前 API：`0.9.0-dev.3`
 
 ## 核心链路
 
@@ -260,3 +260,18 @@ kubectl logs -n aiops-dev deployment/aiops-web -f
 ## 0.9.0-dev.2 Gate 3
 
 当前 `release/0.9.0` 已注册九个只读可信工具。新增的重启、rollout、日志、副本 CPU 和应用 RED 工具全部通过 Tool Runtime 执行，不接受自由 PromQL/LogQL，不执行写操作。日志内容按不可信输入处理，发布 Finding 只表示时间相关性。Agent Runtime 尚未启用。
+
+## 0.9.0-dev.3 Gate 4
+
+Gate 4 新增 Snapshot Replay 与 Result Validator。每个新可信调查在 Diagnosis 保存后生成一份不可变的模型可见快照，包含告警上下文、TargetContext、受控工具输入、裁剪后的结构化结果、Finding 和 Diagnosis；不包含 `raw_output_json` 或 Artifact 正文，也不会在重放时访问 Kubernetes、Prometheus 或 Loki。
+
+Validator 检查：
+
+- Run、ToolExecution、Finding 和 Diagnosis 的引用完整性；
+- Pod UID、Container、Workload UID 和 namespace 作用域一致性；
+- 工具名称、版本和 Finding 类型白名单；
+- 日志 Finding 的 `untrusted_input` 标记；
+- 输入 Snapshot Hash、重放正文大小和 raw response 泄漏；
+- 确定性模式不得写入模型假设。
+
+结果状态为 `VALID`、`VALID_WITH_WARNINGS` 或 `INVALID`。校验失败不会改写原始 Finding，也不会被解释为“没有异常”。Agent Runtime 仍未启用。

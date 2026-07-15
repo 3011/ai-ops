@@ -38,9 +38,9 @@ data:
   INVESTIGATION_RAW_JSON_MAX_BYTES: "65536"
   INVESTIGATION_COLLECTION_MAX_ITEMS: "200"
   INVESTIGATION_STRING_MAX_CHARS: "4000"
-  APP_VERSION: "0.9.0-dev.2"
-  APP_RELEASE_TITLE: "应用与关联可信工具"
-  APP_RELEASE_SUMMARY: "新增受 TargetContext 约束的内存、CPU 和 throttling 工具，并建立无 Agent 的 CPU Spike 确定性调查。"
-  APP_RELEASE_CHANGES: '["容器重启历史","Deployment rollout 与 CI/CD 时间关联","受控日志类别与 Prompt Injection 隔离","Workload UID 副本 CPU 比较","有限 Profile 应用 RED 指标","完整 5/7 工具无 Agent 固定计划","Gate 3 多副本真实场景"]'
+  APP_VERSION: "0.9.0-dev.3"
+  APP_RELEASE_TITLE: "Snapshot Replay 与结果校验"
+  APP_RELEASE_SUMMARY: "新增不可变模型可见快照、离线重放和确定性结果校验，Agent 仍未启用。"
+  APP_RELEASE_CHANGES: '["模型可见 Snapshot Replay","Result Validator 身份与作用域校验","ToolExecution/Finding/Diagnosis 引用一致性","Finding 类型白名单","日志不可信标记验证","历史 Run 离线回填","事件详情 Replay UI"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

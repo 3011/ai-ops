@@ -14,6 +14,7 @@ from app.investigation.catalog import TOOL_CATALOG_VERSION, build_default_regist
 from app.investigation.contracts import DiagnosisResultContract, InvestigationBudget, ToolResult
 from app.investigation.enums import InvestigationStatus, StopReason, ToolStatus
 from app.investigation.resolver import resolve_target_context
+from app.investigation.replay import create_replay_snapshot
 from app.investigation.tool_runtime import ToolRuntime
 from app.models import (
     AlertInstance,
@@ -26,7 +27,7 @@ from app.models import (
 
 OOM_ENGINE = "deterministic_oom_v2"
 CPU_ENGINE = "deterministic_cpu_v1"
-ENGINE_VERSION = "0.9.0-dev.2"
+ENGINE_VERSION = "0.9.0-dev.3"
 _OOM_TOKEN = re.compile(r"\b(?:oomkilled|oom[\s_-]?kill(?:ed)?|out[\s_-]+of[\s_-]+memory)\b", re.IGNORECASE)
 _OOM_ALERTNAMES = {
     "containeroomkilled",
@@ -258,6 +259,8 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
                 degradation_reasons_json=diagnosis.degradation_reasons,
                 validated_output_json=diagnosis.model_dump(mode="json"),
             ))
+            await session.flush()
+            await create_replay_snapshot(session, run.id)
             await session.commit()
             return run.id
 
@@ -397,6 +400,8 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
             degradation_reasons_json=diagnosis.degradation_reasons,
             validated_output_json=diagnosis.model_dump(mode="json"),
         ))
+        await session.flush()
+        await create_replay_snapshot(session, run.id)
         await session.commit()
         return run.id
 

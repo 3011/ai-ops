@@ -565,7 +565,7 @@ function trustedFindingSource(finding: any) {
 }
 
 
-function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
+function TrustedInvestigationPanel({ runs, onReplay, replaying, canReplay }: { runs: any[]; onReplay?: (runId: number) => void; replaying?: boolean; canReplay?: boolean }) {
   const run = runs?.[0]
   if (!run) return <Empty description="当前事件没有可信确定性调查记录。" />
   const target = run.target_context || {}
@@ -593,6 +593,31 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
         <Descriptions.Item label="同工具上限">{run.budget?.max_same_tool_calls || '-'}</Descriptions.Item>
         <Descriptions.Item label="无进展轮次">{run.budget_usage?.no_progress_rounds || 0} / {run.budget?.max_no_progress_rounds || '-'}</Descriptions.Item>
       </Descriptions>
+    </Card>
+    <Card
+      title="Snapshot Replay 与结果校验"
+      extra={canReplay && onReplay ? <Button icon={<ReloadOutlined />} loading={replaying} onClick={() => onReplay(run.id)}>重新重放校验</Button> : undefined}
+    >
+      {run.replay_snapshot ? (() => {
+        const snapshot = run.replay_snapshot
+        const report = snapshot.validation_report || {}
+        const errors = report.errors || []
+        const warnings = report.warnings || []
+        const color = snapshot.validation_status === 'VALID' ? 'green' : snapshot.validation_status === 'VALID_WITH_WARNINGS' ? 'gold' : 'red'
+        return <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
+            <Descriptions.Item label="校验状态"><Tag color={color}>{snapshot.validation_status}</Tag></Descriptions.Item>
+            <Descriptions.Item label="Schema / Validator">{snapshot.snapshot_version} / {report.validator_version || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Snapshot Hash"><Typography.Text code copyable>{snapshot.snapshot_hash}</Typography.Text></Descriptions.Item>
+            <Descriptions.Item label="Source Hash"><Typography.Text code copyable>{snapshot.source_hash}</Typography.Text></Descriptions.Item>
+            <Descriptions.Item label="生成时间">{formatTime(snapshot.created_at)}</Descriptions.Item>
+            <Descriptions.Item label="检查项">{Object.values(report.checks || {}).filter(Boolean).length} / {Object.keys(report.checks || {}).length}</Descriptions.Item>
+          </Descriptions>
+          {errors.length > 0 && <Alert type="error" showIcon message={`重放校验失败：${errors.length} 项`} description={<List size="small" dataSource={errors} renderItem={(item: any) => <List.Item><Space direction="vertical" size={0}><strong>{item.code}</strong><Typography.Text type="secondary">{item.path} · {item.message}</Typography.Text></Space></List.Item>} />} />}
+          {warnings.length > 0 && <Alert type="warning" showIcon message={`重放校验警告：${warnings.length} 项`} description={<List size="small" dataSource={warnings} renderItem={(item: any) => <List.Item><Space direction="vertical" size={0}><strong>{item.code}</strong><Typography.Text type="secondary">{item.path} · {item.message}</Typography.Text></Space></List.Item>} />} />}
+          {snapshot.validation_status === 'VALID' && <Alert type="success" showIcon message="该调查可从持久化的模型可见输入完整重放" description="重放未访问 Kubernetes、Prometheus 或 Loki，且 UID、作用域、Finding、ToolExecution 与 Diagnosis 引用一致。" />}
+        </Space>
+      })() : <Alert type="info" showIcon message="当前 Run 尚未生成 Replay Snapshot" description="历史 Run 可通过重新重放校验生成快照；新 Run 会在完成时自动生成。" />}
     </Card>
     <Card title="目标资源及 UID" extra={<Space><Tag color={statusColor}>{run.status}</Tag><Tag>{run.engine}@{run.engine_version}</Tag></Space>}>
       {target.pod_uid ? <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
@@ -656,6 +681,7 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
       { title: '状态', dataIndex: 'status', render: (value) => <Tag>{value}</Tag> },
       { title: '停止原因', dataIndex: 'stop_reason' },
       { title: '事实数', render: (_: unknown, row: any) => (row.findings || []).length, width: 90 },
+      { title: 'Replay', width: 150, render: (_: unknown, row: any) => row.replay_snapshot ? <Tag color={row.replay_snapshot.validation_status === 'VALID' ? 'green' : row.replay_snapshot.validation_status === 'VALID_WITH_WARNINGS' ? 'gold' : 'red'}>{row.replay_snapshot.validation_status}</Tag> : <Tag>未生成</Tag> },
       { title: '开始', dataIndex: 'started_at', render: formatTime },
       { title: '完成', dataIndex: 'completed_at', render: formatTime },
     ]} /></Card>}
@@ -671,6 +697,15 @@ function IncidentDetailPage() {
     mutationFn: async () => (await api.post(`/incidents/${id}/reanalyze`)).data,
     onSuccess: async () => { message.success('重新分析任务已进入队列'); await client.invalidateQueries({ queryKey: ['incident', id] }) },
     onError: (error) => message.error(`提交失败：${apiErrorMessage(error)}`),
+  })
+  const replay = useMutation({
+    mutationFn: async (runId: number) => (await api.post(`/investigations/${runId}/replay`)).data,
+    onSuccess: async (result) => {
+      const label = result.validation_status === 'VALID' ? '校验通过' : result.validation_status === 'VALID_WITH_WARNINGS' ? '校验完成但存在警告' : '校验失败'
+      message[result.validation_status === 'INVALID' ? 'error' : result.validation_status === 'VALID_WITH_WARNINGS' ? 'warning' : 'success'](`Snapshot Replay：${label}`)
+      await client.invalidateQueries({ queryKey: ['incident', id] })
+    },
+    onError: (error) => message.error(`重放失败：${apiErrorMessage(error)}`),
   })
   if (query.isLoading) return <Card>加载中...</Card>
   if (query.error) return <Alert type="error" message="详情加载失败" description={apiErrorMessage(query.error)} />
@@ -751,7 +786,7 @@ function IncidentDetailPage() {
       <Button type="primary" size="large" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button>
     </div>
     <Tabs className="incident-tabs" defaultActiveKey={latestTrusted ? 'trusted' : 'overview'} items={[
-      { key: 'trusted', label: `可信调查 (${trustedInvestigations.length})`, children: <TrustedInvestigationPanel runs={trustedInvestigations} /> },
+      { key: 'trusted', label: `可信调查 (${trustedInvestigations.length})`, children: <TrustedInvestigationPanel runs={trustedInvestigations} onReplay={(runId) => replay.mutate(runId)} replaying={replay.isPending} canReplay={has('incidents.analyze')} /> },
       { key: 'overview', label: '诊断概览', children: overview },
       { key: 'timeline', label: <Space><HistoryOutlined />变更时间线</Space>, children: timeline },
       { key: 'evidence', label: `全部证据 (${visibleEvidence.length})`, children: evidencePanel },

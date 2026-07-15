@@ -21,6 +21,7 @@ from app.db import SessionLocal, get_session, init_database
 from app.auth import principal_from_request, record_audit, seed_auth_and_release
 from app.governance import router as governance_router
 from app.investigation.repositories import investigation_payloads
+from app.investigation.replay import backfill_replay_snapshots, create_replay_snapshot, replay_snapshot_payload
 from app.model_config import (
     encrypt_api_key,
     normalize_base_url,
@@ -34,6 +35,8 @@ from app.models import (
     EvidenceSnapshot,
     Incident,
     IncidentAlert,
+    InvestigationAnalysisRun,
+    InvestigationReplaySnapshot,
     ModelSettings,
     OutboxJob,
     TraceSettings,
@@ -312,6 +315,8 @@ def route_permission(method: str, path: str) -> str | None:
     if path.startswith("/api/v1/dashboard"):
         return "dashboard.view"
     if path.startswith("/api/v1/incidents"):
+        return "incidents.analyze" if method != "GET" else "incidents.view"
+    if path.startswith("/api/v1/investigations"):
         return "incidents.analyze" if method != "GET" else "incidents.view"
     if path.startswith(("/api/v1/alerts", "/api/v1/webhook-deliveries", "/api/v1/analysis-jobs")):
         return "incidents.view"
@@ -1231,6 +1236,78 @@ async def incident_detail(
             for item in evidence
         ],
     }
+
+
+@app.post("/api/v1/investigations/replay-backfill")
+async def backfill_investigation_replays(
+    request: Request,
+    limit: int = 500,
+    only_missing: bool = True,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    result = await backfill_replay_snapshots(session, limit=limit, only_missing=only_missing)
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="investigation_snapshot_backfill",
+        resource_type="investigation_replay_snapshot",
+        details={
+            "selected": result["selected"],
+            "created": result["created"],
+            "failed": result["failed"],
+            "only_missing": only_missing,
+        },
+        request=request,
+    )
+    await session.commit()
+    return result
+
+
+@app.get("/api/v1/investigations/{analysis_run_id}/replay")
+async def get_investigation_replay(
+    analysis_run_id: int,
+    include_snapshot: bool = False,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    run = await session.get(InvestigationAnalysisRun, analysis_run_id)
+    if run is None:
+        raise HTTPException(404, "analysis run not found")
+    row = await session.scalar(
+        select(InvestigationReplaySnapshot)
+        .where(InvestigationReplaySnapshot.analysis_run_id == analysis_run_id)
+        .order_by(InvestigationReplaySnapshot.created_at.desc(), InvestigationReplaySnapshot.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        raise HTTPException(404, "replay snapshot not found")
+    return replay_snapshot_payload(row, include_snapshot=include_snapshot)
+
+
+@app.post("/api/v1/investigations/{analysis_run_id}/replay")
+async def replay_investigation(
+    analysis_run_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    run = await session.get(InvestigationAnalysisRun, analysis_run_id)
+    if run is None:
+        raise HTTPException(404, "analysis run not found")
+    row = await create_replay_snapshot(session, analysis_run_id)
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="investigation_snapshot_replayed",
+        resource_type="investigation_analysis_run",
+        resource_id=str(analysis_run_id),
+        details={
+            "snapshot_id": row.id,
+            "snapshot_hash": row.snapshot_hash,
+            "validation_status": row.validation_status,
+        },
+        request=request,
+    )
+    await session.commit()
+    return replay_snapshot_payload(row, include_snapshot=True)
 
 
 @app.post("/api/v1/incidents/{incident_id}/reanalyze", status_code=202)

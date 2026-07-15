@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str | None = None
     session_hours: int = 8
     cookie_secure: bool = False
-    app_version: str = "0.9.0-dev.2"
-    app_release_title: str = "应用与关联可信工具"
-    app_release_summary: str = "新增受 TargetContext 约束的内存、CPU 和 throttling 工具，并建立无 Agent 的 CPU Spike 确定性调查。"
-    app_release_changes: str = '["容器重启历史","Deployment rollout 与 CI/CD 时间关联","受控日志类别与 Prompt Injection 隔离","Workload UID 副本 CPU 比较","有限 Profile 应用 RED 指标","完整 5/7 工具无 Agent 固定计划","Gate 3 多副本真实场景"]'
+    app_version: str = "0.9.0-dev.3"
+    app_release_title: str = "Snapshot Replay 与结果校验"
+    app_release_summary: str = "新增不可变模型可见快照、离线重放和确定性结果校验，Agent 仍未启用。"
+    app_release_changes: str = '["模型可见 Snapshot Replay","Result Validator 身份与作用域校验","ToolExecution/Finding/Diagnosis 引用一致性","Finding 类型白名单","日志不可信标记验证","历史 Run 离线回填","事件详情 Replay UI"]'
     git_commit: str = ""
     investigation_raw_json_max_bytes: int = 65_536
     investigation_collection_max_items: int = 200

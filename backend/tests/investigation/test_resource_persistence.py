@@ -35,6 +35,7 @@ from app.models import (
     InvestigationAnalysisRun,
     InvestigationDiagnosisResult,
     InvestigationFinding,
+    InvestigationReplaySnapshot,
     InvestigationToolExecution,
     ModelSettings,
 )
@@ -213,6 +214,10 @@ class ResourcePersistenceTests(unittest.IsolatedAsyncioTestCase):
             tools = list(await session.scalars(select(InvestigationToolExecution).where(InvestigationToolExecution.analysis_run_id == run_id).order_by(InvestigationToolExecution.sequence_number)))
             findings = list(await session.scalars(select(InvestigationFinding).where(InvestigationFinding.analysis_run_id == run_id)))
             diagnosis = await session.get(InvestigationDiagnosisResult, run_id)
+            replay = await session.scalar(select(InvestigationReplaySnapshot).where(InvestigationReplaySnapshot.analysis_run_id == run_id))
+            self.assertIsNotNone(replay)
+            self.assertEqual(replay.validation_status, "VALID")
+            self.assertEqual(replay.snapshot_json["analysis_run"]["id"], run_id)
             self.assertEqual(run.engine, "deterministic_oom_v2")
             self.assertEqual(run.status, "COMPLETED_PARTIAL")
             self.assertEqual(len(tools), 5)
@@ -328,6 +333,10 @@ class ResourcePersistenceTests(unittest.IsolatedAsyncioTestCase):
             tools = list(await session.scalars(select(InvestigationToolExecution).where(InvestigationToolExecution.analysis_run_id == run_id).order_by(InvestigationToolExecution.sequence_number)))
             findings = list(await session.scalars(select(InvestigationFinding).where(InvestigationFinding.analysis_run_id == run_id)))
             diagnosis = await session.get(InvestigationDiagnosisResult, run_id)
+            replay = await session.scalar(select(InvestigationReplaySnapshot).where(InvestigationReplaySnapshot.analysis_run_id == run_id))
+            self.assertIsNotNone(replay)
+            self.assertEqual(replay.validation_status, "VALID")
+            self.assertEqual(replay.snapshot_json["analysis_run"]["id"], run_id)
             self.assertEqual(run.engine, "deterministic_cpu_v1")
             self.assertEqual(len(tools), 7)
             types = {item.finding_type for item in findings}

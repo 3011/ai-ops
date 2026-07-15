@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0-dev.3 - Snapshot Replay 与结果校验
+
+- 新增不可变的模型可见 Replay Snapshot，不保存 Kubernetes、Prometheus 或 Loki 原始响应正文；
+- 新增 Result Validator，校验 Target UID、namespace 作用域、工具目录和工具版本；
+- 校验 ToolExecution、Finding、Diagnosis fact_refs 的双向引用一致性；
+- 为每个可信工具定义允许生成的 Finding 类型白名单；
+- 强制日志 Finding 保留 `untrusted_input=true`，检测 raw response 泄漏；
+- 新 Investigation Run 完成时自动生成 Snapshot，历史 Run 支持离线回填；
+- 事件详情新增 Snapshot Hash、Source Hash、校验报告和显式 replay 操作；
+- 新增 UID 篡改、未知 Finding、悬空引用、日志信任标记和快照幂等 PostgreSQL 测试。
+
 ## 0.9.0-dev.2 - 应用与关联可信工具
 
 - 新增 `get_container_restart_history`。

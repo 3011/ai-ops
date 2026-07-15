@@ -325,6 +325,26 @@ class InvestigationArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class InvestigationReplaySnapshot(Base):
+    __tablename__ = "investigation_replay_snapshots"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "snapshot_version", "validator_version", "source_hash", name="uq_investigation_replay_source"),
+        Index("ix_investigation_replay_run_created", "analysis_run_id", "created_at"),
+        Index("ix_investigation_replay_snapshot_hash", "snapshot_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    analysis_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    snapshot_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    validation_report_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class InvestigationDiagnosisResult(Base):
     __tablename__ = "investigation_diagnosis_results"
 
