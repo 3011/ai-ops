@@ -28,6 +28,22 @@ def _spec_from_catalog(row: dict[str, Any]) -> AgentToolSpec:
     )
 
 
+def _exact_arguments_schema(values: list[dict[str, Any]]) -> dict[str, Any]:
+    schemas: list[dict[str, Any]] = []
+    for arguments in values:
+        schemas.append({
+            "type": "object",
+            "properties": {str(key): {"const": value} for key, value in arguments.items()},
+            "required": sorted(str(key) for key in arguments),
+            "additionalProperties": False,
+        })
+    if not schemas:
+        return {"type": "object", "additionalProperties": False}
+    if len(schemas) == 1:
+        return schemas[0]
+    return {"oneOf": schemas}
+
+
 def _observation_from_result(result: Any) -> AgentToolObservation:
     return AgentToolObservation(
         execution_id=str(result.execution_id),
@@ -114,6 +130,17 @@ class SnapshotAgentToolRuntime:
         self.sequence = 0
         self._used: set[str] = set()
         self._rows = list(snapshot.get("tool_executions") or [])
+        target_context = dict((snapshot.get("analysis_run") or {}).get("target_context") or {})
+        target_fields = (
+            "cluster_id", "namespace", "pod_name", "pod_uid", "container_name",
+            "service_name", "workload_kind", "workload_name", "workload_uid",
+        )
+        self._target_ref = {key: target_context.get(key) for key in target_fields}
+        self._target_identity = target_context
+        allowed = list(target_context.get("allowed_namespaces") or [])
+        if not allowed and target_context.get("namespace"):
+            allowed = [str(target_context["namespace"])]
+        self._allowed_namespaces = allowed
 
     def catalog(self) -> list[AgentToolSpec]:
         names = list(dict.fromkeys(str((row.get("tool") or {}).get("name") or "") for row in self._rows))
@@ -124,7 +151,16 @@ class SnapshotAgentToolRuntime:
                 continue
             row = current.get(name)
             if row:
-                specs.append(_spec_from_catalog(row))
+                saved_arguments = [
+                    dict((item.get("input") or {}).get("arguments") or {})
+                    for item in self._rows
+                    if str((item.get("tool") or {}).get("name") or "") == name
+                ]
+                spec = _spec_from_catalog(row)
+                specs.append(spec.model_copy(update={
+                    "cost_units": 0,
+                    "arguments_schema": _exact_arguments_schema(saved_arguments),
+                }))
             else:
                 source = next(item for item in self._rows if str((item.get("tool") or {}).get("name")) == name)
                 specs.append(AgentToolSpec(
@@ -170,7 +206,13 @@ class SnapshotAgentToolRuntime:
                 tool_name=tool_name,
                 tool_version=(self.registry.get(tool_name).version if self.registry.get(tool_name) else "unknown"),
                 normalized_input_hash=stable_hash({"tool_name": tool_name, "arguments": arguments}),
-                input_json={"arguments": arguments, "snapshot_only": True},
+                input_json={
+                    "target": self._target_ref,
+                    "target_identity": self._target_identity,
+                    "arguments": arguments,
+                    "scope": {"allowed_namespaces": self._allowed_namespaces},
+                    "snapshot_only": True,
+                },
                 status=ToolStatus.UNAVAILABLE.value,
                 structured_output_json={},
                 model_visible_output_json=visible,

@@ -1359,7 +1359,7 @@ async def replay_investigation_with_agent(
     }
 
 
-@app.post("/api/v1/investigations/{analysis_run_id}/agent-shadow")
+@app.post("/api/v1/investigations/{analysis_run_id}/agent-shadow", status_code=202)
 async def run_investigation_agent_shadow(
     analysis_run_id: int,
     request: Request,
@@ -1370,28 +1370,31 @@ async def run_investigation_agent_shadow(
         raise HTTPException(404, "analysis run not found")
     if parent.run_kind != "deterministic" and not parent.engine.startswith("deterministic_"):
         raise HTTPException(400, "agent shadow requires a deterministic parent run")
-    child_id = await execute_agent_run(session, parent.id, run_mode="realtime_shadow")
-    child = await session.get(InvestigationAnalysisRun, child_id)
+    job = OutboxJob(
+        job_type="agent_shadow_investigation",
+        payload={"parent_run_id": parent.id},
+        idempotency_key=f"agent-shadow:{parent.id}:{now().isoformat()}",
+        priority=40,
+        max_attempts=settings.worker_max_attempts,
+    )
+    session.add(job)
+    await session.flush()
     await record_audit(
         session,
         principal=request.state.principal,
-        action="investigation_agent_shadow_run",
+        action="investigation_agent_shadow_requested",
         resource_type="investigation_analysis_run",
-        resource_id=str(child_id),
-        details={
-            "parent_run_id": parent.id,
-            "agent_validation_status": child.agent_validation_status if child else None,
-        },
+        resource_id=str(parent.id),
+        details={"parent_run_id": parent.id, "job_id": job.id},
         request=request,
     )
     await session.commit()
     return {
         "accepted": True,
         "parent_run_id": parent.id,
-        "analysis_run_id": child_id,
-        "run_kind": child.run_kind if child else "agent_shadow",
-        "status": child.status if child else None,
-        "agent_validation_status": child.agent_validation_status if child else None,
+        "job_id": job.id,
+        "run_kind": "agent_shadow",
+        "status": "queued",
     }
 
 

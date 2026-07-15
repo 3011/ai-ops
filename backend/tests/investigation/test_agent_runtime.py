@@ -16,9 +16,11 @@ from app.investigation.agents.contracts import (
 )
 from app.investigation.agents.model_runtime import ScriptedStructuredModel
 from app.investigation.agents.runtime import StructuredInvestigationAgent, model_safe_value
+from app.investigation.agents.tool_runtimes import SnapshotAgentToolRuntime
 from app.investigation.agents.validator import AgentResultValidator
 from app.investigation.contracts import BudgetSnapshot, InvestigationBudget, TargetContext
 from app.investigation.enums import ResolutionQuality
+from app.investigation.catalog import build_default_registry
 
 
 def target() -> TargetContext:
@@ -112,6 +114,35 @@ class FakeTools:
             },
             cost_units=2,
         )
+
+
+class BudgetStopTools(FakeTools):
+    async def execute(self, tool_name: str, arguments: dict) -> AgentToolObservation:
+        self.calls.append((tool_name, arguments))
+        return AgentToolObservation(
+            execution_id="budget-stop",
+            tool_name=tool_name,
+            tool_version="1.0.0",
+            status="BUDGET_EXCEEDED",
+            summary="cost budget exhausted",
+            finding_ids=[],
+            data={},
+            error_code="COST_BUDGET_EXHAUSTED",
+            cost_units=0,
+        )
+
+
+class RecordingSession:
+    def __init__(self) -> None:
+        self.rows = []
+
+    def add(self, row) -> None:
+        self.rows.append(row)
+
+    async def flush(self) -> None:
+        for index, row in enumerate(self.rows, start=1):
+            if getattr(row, "id", None) is None:
+                row.id = index
 
 
 class AgentContractTests(unittest.IsolatedAsyncioTestCase):
@@ -230,6 +261,56 @@ class AgentContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(model.calls), 2)
         self.assertEqual(model.calls[1]["invocation_type"], "schema_repair")
         self.assertFalse(tools.calls)
+
+    async def test_budget_stop_gets_one_final_diagnosis_turn(self) -> None:
+        model = ScriptedStructuredModel([
+            {
+                "action": "tool",
+                "tool_call": {
+                    "tool_name": "get_cpu_throttling",
+                    "arguments": {"window_minutes": 15, "step_seconds": 15},
+                    "rationale": "检查 throttling",
+                },
+                "diagnosis": None,
+            },
+            {
+                "action": "final",
+                "tool_call": None,
+                "diagnosis": {
+                    "summary": "预算停止后基于现有 Finding 保持不确定性。",
+                    "fact_refs": ["F-cpu"],
+                    "hypotheses": [],
+                    "missing_evidence": ["没有更多工具预算"],
+                    "recommended_checks": [],
+                    "risk_notes": [],
+                },
+            },
+        ])
+        tools = BudgetStopTools()
+        result = await StructuredInvestigationAgent(model).investigate(context(), tools, budget())
+        self.assertEqual(result.fact_refs, ["F-cpu"])
+        self.assertEqual(model.calls[-1]["invocation_type"], "final_diagnosis")
+        final_payload = json.loads(model.calls[-1]["messages"][1]["content"])
+        self.assertIn("必须输出 action=final", final_payload["validation_errors_from_previous_response"][0])
+
+    async def test_snapshot_unavailable_tool_keeps_target_binding(self) -> None:
+        target_json = target().model_dump(mode="json")
+        session = RecordingSession()
+        runtime = SnapshotAgentToolRuntime(
+            session,
+            analysis_run_id=11,
+            snapshot={
+                "analysis_run": {"target_context": target_json},
+                "tool_executions": [],
+            },
+            registry=build_default_registry(),
+        )
+        result = await runtime.execute("search_container_logs", {"categories": ["runtime_error"]})
+        self.assertEqual(result.error_code, "SNAPSHOT_TOOL_NOT_AVAILABLE")
+        row = session.rows[0]
+        self.assertEqual(row.input_json["target"]["pod_uid"], target_json["pod_uid"])
+        self.assertEqual(row.input_json["scope"]["allowed_namespaces"], ["production"])
+        self.assertTrue(row.input_json["snapshot_only"])
 
     def test_validator_rejects_fictitious_finding_reference(self) -> None:
         diagnosis = AgentDiagnosisOutput(

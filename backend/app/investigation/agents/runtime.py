@@ -69,7 +69,42 @@ class StructuredInvestigationAgent:
                 "DEADLINE_EXCEEDED", "MAX_STEPS_REACHED", "MAX_TOOL_CALLS_REACHED",
                 "MAX_SAME_TOOL_CALLS_REACHED", "COST_BUDGET_EXHAUSTED", "NO_PROGRESS",
             }:
+                final = await self._request_final(context, observations, "工具预算已停止；必须输出 action=final，不得再请求工具。")
+                if final is not None:
+                    return final
                 break
+        final = await self._request_final(context, observations, "调查轮次已结束；必须输出 action=final，不得再请求工具。")
+        if final is not None:
+            return final
+        return self._fallback(context, observations)
+
+    async def _request_final(
+        self,
+        context: InvestigationContext,
+        observations: list[AgentToolObservation],
+        reason: str,
+    ) -> AgentDiagnosisOutput | None:
+        try:
+            raw = await self.model.invoke(
+                invocation_type="final_diagnosis",
+                messages=build_turn_messages(
+                    context,
+                    [observation_payload(item) for item in observations],
+                    validation_errors=[reason],
+                ),
+            )
+            turn = AgentTurn.model_validate(raw)
+        except (ValidationError, RuntimeError, ValueError):
+            return None
+        if turn.action != "final" or turn.diagnosis is None:
+            return None
+        return turn.diagnosis
+
+    @staticmethod
+    def _fallback(
+        context: InvestigationContext,
+        observations: list[AgentToolObservation],
+    ) -> AgentDiagnosisOutput:
         available = list(dict.fromkeys([
             *context.initial_finding_ids,
             *(finding for item in observations for finding in item.finding_ids),

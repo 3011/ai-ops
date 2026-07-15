@@ -16,6 +16,7 @@ from sqlalchemy import select, update
 from app.config import get_settings
 from app.db import SessionLocal, init_database
 from app.model_config import load_runtime_model_config
+from app.investigation.agents.service import run_agent_shadow
 from app.investigation.service import run_trusted_investigations
 from app.models import (
     AlertInstance,
@@ -1351,9 +1352,26 @@ async def process(job_id: int) -> None:
         job = await session.get(OutboxJob, job_id)
         if job is None:
             return
-        if job.job_type != "analyze_incident":
-            raise ValueError(f"unsupported job type: {job.job_type}")
-        incident_id = int(job.payload["incident_id"])
+        job_type = job.job_type
+        payload = dict(job.payload or {})
+
+    if job_type == "agent_shadow_investigation":
+        parent_run_id = int(payload["parent_run_id"])
+        child_run_id = await run_agent_shadow(parent_run_id)
+        async with SessionLocal() as session:
+            job = await session.get(OutboxJob, job_id)
+            if job is not None:
+                job.payload = {**payload, "analysis_run_id": child_run_id}
+                job.status = "succeeded"
+                job.finished_at = utcnow()
+                job.locked_at = None
+                job.locked_by = None
+            await session.commit()
+        logger.info("processed agent shadow job=%s parent_run=%s child_run=%s", job_id, parent_run_id, child_run_id)
+        return
+    if job_type != "analyze_incident":
+        raise ValueError(f"unsupported job type: {job_type}")
+    incident_id = int(payload["incident_id"])
 
     try:
         trusted_run_ids = await run_trusted_investigations(incident_id)

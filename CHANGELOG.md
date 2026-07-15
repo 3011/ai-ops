@@ -15,7 +15,10 @@
 - 新增 OOM/CPU 安全与效果评估及聚合发布门槛；
 - 事件详情新增确定性结果、实时 Shadow、离线 Replay、假设支持/反证、模型 Artifact 和评估对比；
 - 新增手动 Agent Shadow、Offline Replay、Comparison、Evaluation 和聚合 Evaluation API；
-- 后端 88 项测试（含隔离 PostgreSQL）通过，前端生产构建通过。
+- 手动 Shadow API 通过 Outbox 交给 Worker 执行，保持只读 Kubernetes RBAC 边界；
+- 离线缺失参数调用仍绑定原 Target/Scope，Replay Snapshot 可通过 1.2.0 Validator；
+- 工具预算停止后增加一次强制 final diagnosis 轮次，避免仅因预算耗尽丢失结构化结论；
+- 后端 93 项测试（含隔离 PostgreSQL）通过，前端生产构建通过。
 
 ## 0.9.0-dev.4 - 冻结调查输入与历史 Replay 适配
 
