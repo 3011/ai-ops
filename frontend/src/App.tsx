@@ -555,7 +555,7 @@ function AppLayout() {
   }, [location.pathname])
   return (
     <Layout className="shell">
-      <Layout.Sider width={238} breakpoint="lg" collapsedWidth={0}>
+      <Layout.Sider className="app-sider" width={238} breakpoint="lg" collapsedWidth={0}>
         <div className="brand"><DeploymentUnitOutlined /><span>AIOps Console</span></div>
         <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} items={[
           { key: 'dashboard', icon: <DashboardOutlined />, label: <Link to="/dashboard">运维总览</Link> },
@@ -567,7 +567,7 @@ function AppLayout() {
           { key: 'settings', icon: <SettingOutlined />, label: <Link to="/settings/model">设置</Link> },
         ]} />
       </Layout.Sider>
-      <Layout>
+      <Layout className="main-layout">
         <Layout.Header className="header">
           <div className="header-left">
             <Typography.Text className="header-product">WORK&apos;S K8S</Typography.Text>
