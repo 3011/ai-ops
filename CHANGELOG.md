@@ -18,9 +18,11 @@
 - 手动 Shadow API 通过 Outbox 交给 Worker 执行，保持只读 Kubernetes RBAC 边界；
 - 离线缺失参数调用仍绑定原 Target/Scope，Replay Snapshot 可通过 1.2.0 Validator；
 - 工具预算停止后增加一次强制 final diagnosis 轮次，避免仅因预算耗尽丢失结构化结论；
-- 后端 93 项测试（含隔离 PostgreSQL）通过，前端生产构建通过；
+- 后端 96 项测试（含隔离 PostgreSQL）通过，前端生产构建通过；
 - 场景回归工具改为内部签名会话、配额安全的顺序执行，并在清理时取消测试 follow-up；
-- Agent Evaluation Suite 定版为 `0.9.0`，模型不可用但未产生反向声明时不再误判为硬事实不一致。
+- Agent Evaluation Suite 定版为 `0.9.0`，模型不可用但未产生反向声明时不再误判为硬事实不一致；
+- Prompt/Runtime 审计升级为 `agent-investigation-v2` / `1.1.0`，重要受支持假设新增结构化 `counterevidence_check`；
+- 完整 `NOT_FOUND` 与负向观测计入有效工具调用，反证率只衡量 highly/partially supported 的重要假设。
 
 ## 0.9.0-dev.4 - 冻结调查输入与历史 Replay 适配
 

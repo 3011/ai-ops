@@ -51,9 +51,10 @@ class AgentHypothesis(BaseModel):
     support_level: HypothesisSupport
     fact_refs: list[str] = Field(default_factory=list)
     contradicting_fact_refs: list[str] = Field(default_factory=list)
+    counterevidence_check: str = Field(default="", max_length=1200)
     rationale: str = Field(min_length=1, max_length=1600)
 
-    @field_validator("statement", "rationale")
+    @field_validator("statement", "rationale", "counterevidence_check")
     @classmethod
     def reject_forbidden_certainty(cls, value: str) -> str:
         lowered = value.casefold()

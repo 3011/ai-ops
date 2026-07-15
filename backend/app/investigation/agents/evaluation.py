@@ -16,6 +16,48 @@ from app.models import (
 EVAL_SUITE_VERSION = "0.9.0"
 
 
+_COUNTEREVIDENCE_TOKENS = (
+    "counterevidence", "contradiction", "contradict", "反证", "矛盾",
+    "但", "然而", "不过", "无法", "不足", "未发现", "未观察到",
+    "无证据", "没有证据", "不能排除", "不支持", "not observed",
+    "no evidence", "insufficient", "unable to", "cannot",
+)
+
+
+def _tool_execution_is_useful(row: InvestigationToolExecution) -> bool:
+    visible = dict(row.model_visible_output_json or {})
+    if visible.get("finding_ids"):
+        return True
+    status = str(row.status or "")
+    completeness = str(visible.get("completeness") or "")
+    # Complete or partial negative observations are evidence: they can refute a
+    # hypothesis or document an explicit data gap. Infrastructure failures,
+    # scope denials, budget stops and snapshot misses are not useful calls.
+    return status in {"FOUND", "NOT_FOUND", "PARTIAL"} and completeness in {"complete", "partial"}
+
+
+def _hypothesis_counterevidence_checked(item: dict[str, Any]) -> bool:
+    if item.get("contradicting_fact_refs") or item.get("support_level") == "contradicted":
+        return True
+    if str(item.get("counterevidence_check") or "").strip():
+        return True
+    # Compatibility for 0.9.0-rc.1 outputs produced before the structured field:
+    # recognize an explicit caveat/negative-evidence statement in rationale.
+    rationale = str(item.get("rationale") or "").casefold()
+    return any(token.casefold() in rationale for token in _COUNTEREVIDENCE_TOKENS)
+
+
+def _important_contradiction_rate(hypotheses: list[dict[str, Any]]) -> float:
+    important = [
+        item for item in hypotheses
+        if item.get("support_level") in {"highly_supported", "partially_supported"}
+    ]
+    if not important:
+        return 1.0
+    checked = sum(1 for item in important if _hypothesis_counterevidence_checked(item))
+    return checked / len(important)
+
+
 def _identity(target: dict[str, Any] | None) -> tuple[Any, ...]:
     target = target or {}
     return tuple(target.get(key) for key in (
@@ -55,7 +97,7 @@ async def compute_agent_evaluation(
     agent_ids = {row.id for row in agent_findings}
     allowed_ids = parent_ids | agent_ids
 
-    useful_calls = sum(1 for row in agent_tools if (row.model_visible_output_json or {}).get("finding_ids"))
+    useful_calls = sum(1 for row in agent_tools if _tool_execution_is_useful(row))
     duplicate_keys = [(row.tool_name, row.normalized_input_hash) for row in agent_tools]
     duplicate_calls = len(duplicate_keys) - len(set(duplicate_keys))
     supported_claims = [
@@ -63,10 +105,7 @@ async def compute_agent_evaluation(
         if item.get("support_level") in {"highly_supported", "partially_supported"}
     ]
     unsupported_claims = [item for item in supported_claims if not item.get("fact_refs")]
-    contradiction_checked = [
-        item for item in hypotheses
-        if item.get("contradicting_fact_refs") or item.get("support_level") == "contradicted"
-    ]
+    contradiction_check_rate = _important_contradiction_rate(hypotheses)
     parent_types = {row.finding_type for row in parent_findings}
     agent_types = {row.finding_type for row in agent_findings}
     parent_oom_ids = {row.id for row in parent_findings if row.finding_type == "container_oom_killed"}
@@ -102,7 +141,7 @@ async def compute_agent_evaluation(
     metrics = {
         "useful_tool_call_rate": useful_calls / len(agent_tools) if agent_tools else 0.0,
         "duplicate_tool_call_rate": duplicate_calls / len(agent_tools) if agent_tools else 0.0,
-        "contradiction_check_rate": len(contradiction_checked) / len(hypotheses) if hypotheses else 1.0,
+        "contradiction_check_rate": contradiction_check_rate,
         "unsupported_hypothesis_rate": len(unsupported_claims) / len(supported_claims) if supported_claims else 0.0,
         "fact_ref_coverage": len(fact_refs & allowed_ids) / len(allowed_ids) if allowed_ids else 1.0,
         "parent_fact_overlap": len(fact_refs & parent_ids) / len(parent_ids) if parent_ids else 1.0,

@@ -13,7 +13,7 @@ from app.investigation.agents.prompts import PROMPT_VERSION
 from app.model_config import RuntimeModelConfig
 
 RUNTIME_NAME = "openai_compatible_json"
-RUNTIME_VERSION = "1.0.0"
+RUNTIME_VERSION = "1.1.0"
 
 
 class StructuredModel(Protocol):

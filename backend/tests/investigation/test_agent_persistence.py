@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from app.db import SessionLocal, engine
 from app.investigation.agents.audit import ModelInvocationAudit
 from app.investigation.agents.evaluation import EVAL_SUITE_VERSION, aggregate_agent_evaluations
+from app.investigation.agents.prompts import PROMPT_VERSION
 from app.investigation.agents.service import execute_agent_run
 from app.worker import process
 from app.models import (
@@ -45,7 +46,7 @@ class AuditedFinalModel:
             provider="test",
             model="scripted",
             model_parameters={"temperature": 0},
-            prompt_version="agent-investigation-v1",
+            prompt_version=PROMPT_VERSION,
             request_payload=request,
         )
         response = {
@@ -88,7 +89,7 @@ class AuditedUnavailableThenFinalModel(AuditedFinalModel):
             provider="test",
             model="scripted",
             model_parameters={"temperature": 0},
-            prompt_version="agent-investigation-v1",
+            prompt_version=PROMPT_VERSION,
             request_payload={"messages": messages},
         )
         if self.turn == 1:

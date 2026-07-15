@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+from types import SimpleNamespace
 import unittest
 
 from pydantic import ValidationError
@@ -13,6 +14,10 @@ from app.investigation.agents.contracts import (
     AgentToolObservation,
     AgentToolSpec,
     InvestigationContext,
+)
+from app.investigation.agents.evaluation import (
+    _important_contradiction_rate,
+    _tool_execution_is_useful,
 )
 from app.investigation.agents.model_runtime import ScriptedStructuredModel
 from app.investigation.agents.runtime import StructuredInvestigationAgent, model_safe_value
@@ -146,6 +151,97 @@ class RecordingSession:
 
 
 class AgentContractTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_complete_negative_observation_counts_as_useful_evidence(self) -> None:
+        complete_negative = SimpleNamespace(
+            status="NOT_FOUND",
+            model_visible_output_json={
+                "finding_ids": [],
+                "completeness": "complete",
+            },
+        )
+        complete_found_without_finding = SimpleNamespace(
+            status="FOUND",
+            model_visible_output_json={
+                "finding_ids": [],
+                "completeness": "complete",
+            },
+        )
+        infrastructure_failure = SimpleNamespace(
+            status="UNAVAILABLE",
+            model_visible_output_json={
+                "finding_ids": [],
+                "completeness": "unknown",
+            },
+        )
+        budget_stop = SimpleNamespace(
+            status="BUDGET_EXCEEDED",
+            model_visible_output_json={
+                "finding_ids": [],
+                "completeness": "unknown",
+            },
+        )
+        self.assertTrue(_tool_execution_is_useful(complete_negative))
+        self.assertTrue(_tool_execution_is_useful(complete_found_without_finding))
+        self.assertFalse(_tool_execution_is_useful(infrastructure_failure))
+        self.assertFalse(_tool_execution_is_useful(budget_stop))
+
+    def test_contradiction_rate_only_measures_supported_hypotheses(self) -> None:
+        hypotheses = [
+            {
+                "id": "H-supported",
+                "support_level": "partially_supported",
+                "counterevidence_check": "已检查错误率未同步上升，因此不能把流量变化视为唯一解释。",
+                "contradicting_fact_refs": [],
+                "rationale": "CPU 与 throttling 同窗出现。",
+            },
+            {
+                "id": "H-placeholder",
+                "support_level": "insufficient_evidence",
+                "counterevidence_check": "",
+                "contradicting_fact_refs": [],
+                "rationale": "缺少 profile。",
+            },
+        ]
+        self.assertEqual(_important_contradiction_rate(hypotheses), 1.0)
+        hypotheses[0]["counterevidence_check"] = ""
+        hypotheses[0]["rationale"] = "CPU 与 throttling 同窗出现。"
+        self.assertEqual(_important_contradiction_rate(hypotheses), 0.0)
+
+    def test_validator_requires_counterevidence_for_supported_hypothesis(self) -> None:
+        diagnosis = AgentDiagnosisOutput(
+            summary="存在一个受限假设。",
+            fact_refs=["F-cpu"],
+            hypotheses=[AgentHypothesis(
+                id="H-1",
+                statement="CPU 配额压力可能放大延迟风险。",
+                support_level="partially_supported",
+                fact_refs=["F-cpu"],
+                contradicting_fact_refs=[],
+                counterevidence_check="",
+                rationale="CPU 与延迟同窗出现。",
+            )],
+        )
+        report = AgentResultValidator().validate(
+            diagnosis,
+            allowed_finding_ids=["F-cpu"],
+            observations=[],
+            allowed_tool_names=[],
+            target_resolved=True,
+        )
+        self.assertEqual(report.status, "VALID_WITH_WARNINGS")
+        self.assertIn("NO_CONTRADICTION_CHECK", {item.code for item in report.warnings})
+
+        diagnosis.hypotheses[0].counterevidence_check = "已检查请求率未上升；该反向证据限制了假设范围。"
+        report = AgentResultValidator().validate(
+            diagnosis,
+            allowed_finding_ids=["F-cpu"],
+            observations=[],
+            allowed_tool_names=[],
+            target_resolved=True,
+        )
+        self.assertNotIn("NO_CONTRADICTION_CHECK", {item.code for item in report.warnings})
+
     def test_free_query_arguments_are_rejected(self) -> None:
         for arguments in (
             {"promql": "up"},
@@ -210,6 +306,7 @@ class AgentContractTests(unittest.IsolatedAsyncioTestCase):
                         "support_level": "partially_supported",
                         "fact_refs": ["F-cpu", "F-throttle"],
                         "contradicting_fact_refs": ["F-cpu"],
+                        "counterevidence_check": "已检查代码路径证据仍缺失，且该 Finding 不能区分负载增长与应用回归。",
                         "rationale": "CPU Spike 与 throttling Finding 同时存在；尚无代码路径证据。",
                     }],
                     "missing_evidence": ["应用 RED 指标或 profile"],

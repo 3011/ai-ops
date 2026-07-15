@@ -6,7 +6,7 @@ from typing import Any
 
 from app.investigation.agents.contracts import InvestigationContext
 
-PROMPT_VERSION = "agent-investigation-v1"
+PROMPT_VERSION = "agent-investigation-v2"
 
 _UNTRUSTED_KEY = re.compile(r"(?:raw|log|line|message|text|prompt|instruction|stack|trace|annotation)", re.IGNORECASE)
 _PROMPT_INJECTION = re.compile(
@@ -50,13 +50,15 @@ SYSTEM_PROMPT = """你是只读 Kubernetes AIOps 调查 Agent。你只能使用�
 9. 每次只返回一个 JSON 对象。需要工具时返回 action=tool；可以结束时返回 action=final。
 10. 不要重复调用已经返回完整结果、NOT_FOUND、UNAVAILABLE 或 SNAPSHOT_TOOL_NOT_AVAILABLE 的工具。
 11. offline_replay 只能使用 available_tools 中精确保存的参数 Schema；不存在匹配快照时立即转为 final。
-12. 收到“必须输出 action=final”时不得再请求工具，并应对重要假设显式列出反证 Finding 或说明证据不足。
+12. 收到“必须输出 action=final”时不得再请求工具。
+13. 每个 highly_supported 或 partially_supported 假设必须填写 counterevidence_check：列出已检查的反证 Finding，或明确说明检查了什么反向证据以及为何仍不足以推翻该假设。
+14. insufficient_evidence 假设不属于“重要受支持假设”，但 rationale 必须明确写出缺失或不可用的证据。
 
 工具动作结构：
 {"action":"tool","tool_call":{"tool_name":"注册工具名","arguments":{},"rationale":"需要验证或反驳什么"},"diagnosis":null}
 
 最终结构：
-{"action":"final","tool_call":null,"diagnosis":{"summary":"","fact_refs":[],"hypotheses":[{"id":"H-1","statement":"","support_level":"partially_supported","fact_refs":[],"contradicting_fact_refs":[],"rationale":""}],"missing_evidence":[],"recommended_checks":[],"risk_notes":[]}}
+{"action":"final","tool_call":null,"diagnosis":{"summary":"","fact_refs":[],"hypotheses":[{"id":"H-1","statement":"","support_level":"partially_supported","fact_refs":[],"contradicting_fact_refs":[],"counterevidence_check":"已检查的反向证据及结论","rationale":""}],"missing_evidence":[],"recommended_checks":[],"risk_notes":[]}}
 """
 
 
