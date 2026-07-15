@@ -78,3 +78,36 @@ kubectl logs -n aiops-dev deployment/aiops-api -f
 kubectl logs -n aiops-dev deployment/aiops-worker -f
 kubectl logs -n aiops-dev deployment/aiops-web -f
 ```
+
+## Alertmanager 实际接入
+
+`deploy/dev/50-alertmanager-config.yaml` 已将 Alertmanager 接到集群内地址：
+
+```text
+http://aiops-api.aiops-dev.svc:8000/api/v1/webhooks/alertmanager
+```
+
+开发阶段使用显式准入机制。告警必须同时满足：
+
+```yaml
+labels:
+  namespace: aiops-dev
+  aiops_enabled: "true"
+```
+
+才会被 `AlertmanagerConfig` 路由到 AIOps 控制台。其他命名空间和未标记告警不受影响。
+
+真实链路测试：
+
+```bash
+kubectl apply -f deploy/dev/test-alert-rule.yaml
+
+# 查看事件进入控制台后删除测试规则
+kubectl delete -f deploy/dev/test-alert-rule.yaml
+```
+
+测试链路为：
+
+```text
+PrometheusRule → Prometheus → Alertmanager → AIOps API → PostgreSQL Outbox → Worker
+```
