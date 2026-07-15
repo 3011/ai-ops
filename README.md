@@ -1,16 +1,22 @@
 # AIOps Console MVP
 
-开发源码目标目录：`k8s-cp01:/root/aiops-console`。开发服务运行在 Kubernetes `aiops-dev` 命名空间，API、Worker、React 开发容器通过 hostPath 挂载源码并固定到 `k8s-cp01`；PostgreSQL 使用 PVC。
+开发源码目录：`k8s-cp01:/root/aiops-console`。
+
+开发服务运行在 Kubernetes `aiops-dev` 命名空间。API、Worker、React 开发容器通过 `hostPath` 挂载源码并固定到 `k8s-cp01`；PostgreSQL 使用独立 PVC，不把数据库数据写入 `/root`。
 
 ## 当前实现
 
 - FastAPI Alertmanager webhook
 - `webhook_deliveries → alert_instances → incidents` 三层模型
-- firing/resolved 生命周期与重复投递幂等
-- PostgreSQL Outbox、`FOR UPDATE SKIP LOCKED`、重试和死信
-- React + TypeScript + Ant Design 事件列表和详情
+- firing/resolved 生命周期和重复投递幂等
+- PostgreSQL Outbox、`FOR UPDATE SKIP LOCKED`、超时锁回收、重试和死信
+- 围绕告警 `startsAt` 查询 Prometheus 和 Loki
+- 保存 PromQL、LogQL、查询时间窗、摘要、耗时和错误
+- OpenAI-compatible 结构化 LLM 分析；无 Key 时自动降级为确定性证据报告
+- 日志样本脱敏、Prompt Injection 隔离和高风险操作过滤
+- React + TypeScript + Ant Design 事件列表、详情、分析和证据展示
+- 手工“重新分析”功能
 - `/healthz`、`/readyz`、`/metrics`
-- Prometheus/Loki 连接配置已预置；证据采集和 LLM 分析在下一迭代启用
 
 ## 部署
 
@@ -22,26 +28,53 @@ bash deploy/dev/deploy.sh
 访问：
 
 - Web: `http://172.30.10.11:30300`
-- API docs: `http://172.30.10.11:30800/docs`
+- API docs: `http://172.30.10.11:30801/docs`
 
-测试：
+## 测试告警生命周期
 
 ```bash
 curl -sS -X POST -H 'Content-Type: application/json' \
   --data-binary @deploy/dev/test-firing.json \
-  http://172.30.10.11:30800/api/v1/webhooks/alertmanager
+  http://172.30.10.11:30801/api/v1/webhooks/alertmanager
 
-curl -sS http://172.30.10.11:30800/api/v1/incidents
+curl -sS http://172.30.10.11:30801/api/v1/incidents
 
 curl -sS -X POST -H 'Content-Type: application/json' \
   --data-binary @deploy/dev/test-resolved.json \
-  http://172.30.10.11:30800/api/v1/webhooks/alertmanager
+  http://172.30.10.11:30801/api/v1/webhooks/alertmanager
 ```
 
-查看日志：
+重新采集证据并分析：
 
 ```bash
-kubectl logs -n aiops-dev deploy/aiops-api -f
-kubectl logs -n aiops-dev deploy/aiops-worker -f
-kubectl logs -n aiops-dev deploy/aiops-web -f
+curl -sS -X POST \
+  http://172.30.10.11:30801/api/v1/incidents/1/reanalyze
+```
+
+## 配置 LLM
+
+默认 `LLM_API_KEY` 为空，Worker 只生成证据报告，不会伪造 AI 根因。
+
+设置兼容 OpenAI Chat Completions 的 API Key：
+
+```bash
+kubectl patch secret aiops-secrets -n aiops-dev --type merge \
+  -p '{"stringData":{"LLM_API_KEY":"替换为实际Key"}}'
+
+kubectl rollout restart deployment/aiops-worker -n aiops-dev
+```
+
+模型地址和模型名位于 `deploy/dev/00-base.yaml`：
+
+```text
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+```
+
+## 查看日志
+
+```bash
+kubectl logs -n aiops-dev deployment/aiops-api -f
+kubectl logs -n aiops-dev deployment/aiops-worker -f
+kubectl logs -n aiops-dev deployment/aiops-web -f
 ```
