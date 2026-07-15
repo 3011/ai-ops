@@ -7,9 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.investigation.replay import replay_snapshot_payload
 from app.models import (
+    InvestigationAgentEvaluation,
     InvestigationAnalysisRun,
     InvestigationDiagnosisResult,
     InvestigationFinding,
+    InvestigationModelInvocation,
     InvestigationReplaySnapshot,
     InvestigationToolExecution,
 )
@@ -52,10 +54,28 @@ async def investigation_payloads(
             .order_by(InvestigationReplaySnapshot.created_at.desc(), InvestigationReplaySnapshot.id.desc())
             .limit(1)
         )
+        model_invocations = (
+            await session.scalars(
+                select(InvestigationModelInvocation)
+                .where(InvestigationModelInvocation.analysis_run_id == run.id)
+                .order_by(InvestigationModelInvocation.sequence_number, InvestigationModelInvocation.id)
+            )
+        ).all()
+        evaluation = await session.scalar(
+            select(InvestigationAgentEvaluation)
+            .where(InvestigationAgentEvaluation.analysis_run_id == run.id)
+            .order_by(InvestigationAgentEvaluation.created_at.desc(), InvestigationAgentEvaluation.id.desc())
+            .limit(1)
+        )
         payloads.append(
             {
                 "id": run.id,
                 "incident_id": run.incident_id,
+                "parent_run_id": run.parent_run_id,
+                "run_kind": run.run_kind,
+                "source_snapshot_id": run.source_snapshot_id,
+                "agent_validation_status": run.agent_validation_status,
+                "agent_validation_report": run.agent_validation_report_json or {},
                 "status": run.status,
                 "stop_reason": run.stop_reason,
                 "degradation_reasons": run.degradation_reasons or [],
@@ -110,6 +130,40 @@ async def investigation_payloads(
                     for finding in findings
                 ],
                 "replay_snapshot": replay_snapshot_payload(replay_snapshot) if replay_snapshot else None,
+                "model_invocations": [
+                    {
+                        "id": invocation.id,
+                        "sequence_number": invocation.sequence_number,
+                        "invocation_type": invocation.invocation_type,
+                        "runtime_name": invocation.runtime_name,
+                        "runtime_version": invocation.runtime_version,
+                        "provider": invocation.provider,
+                        "model": invocation.model,
+                        "prompt_version": invocation.prompt_version,
+                        "request_snapshot_uri": invocation.request_snapshot_uri,
+                        "request_hash": invocation.request_hash,
+                        "response_snapshot_uri": invocation.response_snapshot_uri,
+                        "response_hash": invocation.response_hash,
+                        "status": invocation.status,
+                        "input_tokens": invocation.input_tokens,
+                        "output_tokens": invocation.output_tokens,
+                        "latency_ms": invocation.latency_ms,
+                        "error_code": invocation.error_code,
+                        "error_message": invocation.error_message,
+                        "started_at": invocation.started_at,
+                        "completed_at": invocation.completed_at,
+                    }
+                    for invocation in model_invocations
+                ],
+                "evaluation": (
+                    {
+                        "suite_version": evaluation.suite_version,
+                        "status": evaluation.status,
+                        "metrics": evaluation.metrics_json or {},
+                        "gates": evaluation.gates_json or {},
+                        "created_at": evaluation.created_at,
+                    } if evaluation else None
+                ),
                 "diagnosis": (
                     {
                         "summary": diagnosis.summary,

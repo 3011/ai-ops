@@ -565,9 +565,76 @@ function trustedFindingSource(finding: any) {
 }
 
 
-function TrustedInvestigationPanel({ runs, onReplay, replaying, canReplay }: { runs: any[]; onReplay?: (runId: number) => void; replaying?: boolean; canReplay?: boolean }) {
-  const run = runs?.[0]
+function supportColor(value?: string) {
+  if (value === 'highly_supported') return 'green'
+  if (value === 'partially_supported') return 'blue'
+  if (value === 'contradicted') return 'red'
+  return 'gold'
+}
+
+function metricPercent(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '-'
+}
+
+function AgentRunSummary({ run }: { run: any }) {
+  const hypotheses = run.diagnosis?.hypotheses || []
+  const invocations = run.model_invocations || []
+  const evaluation = run.evaluation
+  const validation = run.agent_validation_report || {}
+  const validationColor = run.agent_validation_status === 'VALID' ? 'green' : run.agent_validation_status === 'INVALID' ? 'red' : 'gold'
+  const evaluationColor = evaluation?.status === 'PASS' ? 'green' : evaluation?.status === 'FAIL' ? 'red' : 'gold'
+  return <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Descriptions bordered size="small" column={{ xs: 1, md: 3 }}>
+      <Descriptions.Item label="Run / 模式">#{run.id} · <Tag>{run.run_kind}</Tag></Descriptions.Item>
+      <Descriptions.Item label="运行状态"><Tag color={run.status === 'COMPLETED' ? 'green' : run.status === 'FAILED' ? 'red' : 'gold'}>{run.status}</Tag></Descriptions.Item>
+      <Descriptions.Item label="Agent 输出校验"><Tag color={validationColor}>{run.agent_validation_status || '-'}</Tag></Descriptions.Item>
+      <Descriptions.Item label="父级 Run">#{run.parent_run_id}</Descriptions.Item>
+      <Descriptions.Item label="来源 Snapshot"><Typography.Text code copyable>{run.source_snapshot_id || '-'}</Typography.Text></Descriptions.Item>
+      <Descriptions.Item label="评估套件"><Tag color={evaluationColor}>{evaluation?.status || '未评估'}</Tag> {evaluation?.suite_version || ''}</Descriptions.Item>
+      <Descriptions.Item label="模型调用">{invocations.length}</Descriptions.Item>
+      <Descriptions.Item label="受控工具调用">{(run.tool_executions || []).length}</Descriptions.Item>
+      <Descriptions.Item label="假设数">{hypotheses.length}</Descriptions.Item>
+    </Descriptions>
+    <Alert type={run.status === 'FAILED' || run.agent_validation_status === 'INVALID' ? 'error' : 'info'} showIcon message={run.diagnosis?.summary || 'Agent 未输出摘要'} description={(run.degradation_reasons || []).length ? (run.degradation_reasons || []).join('；') : 'Shadow 结果不会写回父级确定性 Diagnosis。'} />
+    <Card size="small" title="Agent 假设（非硬事实）">
+      {hypotheses.length ? <List size="small" dataSource={hypotheses} renderItem={(item: any) => <List.Item>
+        <List.Item.Meta title={<Space wrap><Tag color={supportColor(item.support_level)}>{item.support_level}</Tag><strong>{item.statement}</strong></Space>} description={<Space direction="vertical" size={2}><span>{item.rationale}</span><Typography.Text type="secondary">支持 Finding：{(item.fact_refs || []).join(', ') || '-'}；反证 Finding：{(item.contradicting_fact_refs || []).join(', ') || '-'}</Typography.Text></Space>} />
+      </List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有通过契约的 Agent 假设" />}
+    </Card>
+    {evaluation && <Card size="small" title="安全与效果门槛">
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Space wrap>
+          <Tag>有效工具调用 {metricPercent(evaluation.metrics?.useful_tool_call_rate)}</Tag>
+          <Tag>重复调用 {metricPercent(evaluation.metrics?.duplicate_tool_call_rate)}</Tag>
+          <Tag>反证检查 {metricPercent(evaluation.metrics?.contradiction_check_rate)}</Tag>
+          <Tag>无依据假设 {metricPercent(evaluation.metrics?.unsupported_hypothesis_rate)}</Tag>
+        </Space>
+        <Space wrap>{Object.entries(evaluation.gates || {}).map(([key, value]) => <Tag key={key} color={value ? 'green' : 'red'}>{value ? '✓' : '✗'} {key}</Tag>)}</Space>
+      </Space>
+    </Card>}
+    {invocations.length > 0 && <Card size="small" title="模型调用 Artifact 审计">
+      <Table rowKey="id" size="small" pagination={false} dataSource={invocations} columns={[
+        { title: '序号', dataIndex: 'sequence_number', width: 70 },
+        { title: '类型', dataIndex: 'invocation_type' },
+        { title: '模型', render: (_: unknown, row: any) => `${row.provider}/${row.model}` },
+        { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'SUCCEEDED' ? 'green' : value === 'FAILED' ? 'red' : 'blue'}>{value}</Tag> },
+        { title: '请求 Artifact', render: (_: unknown, row: any) => <Typography.Text code copyable>{row.request_snapshot_uri}</Typography.Text> },
+        { title: '响应 Artifact', render: (_: unknown, row: any) => row.response_snapshot_uri ? <Typography.Text code copyable>{row.response_snapshot_uri}</Typography.Text> : '-' },
+        { title: '耗时', render: (_: unknown, row: any) => row.latency_ms == null ? '-' : `${row.latency_ms} ms` },
+      ]} />
+    </Card>}
+    {(validation.errors || []).length > 0 && <Alert type="error" showIcon message="Agent 输出校验失败" description={(validation.errors || []).map((item: any) => `${item.code}: ${item.message}`).join('；')} />}
+  </Space>
+}
+
+
+function TrustedInvestigationPanel({ runs, onReplay, onAgentReplay, replaying, agentReplaying, canReplay }: { runs: any[]; onReplay?: (runId: number) => void; onAgentReplay?: (runId: number) => void; replaying?: boolean; agentReplaying?: boolean; canReplay?: boolean }) {
+  const deterministicRuns = (runs || []).filter((item: any) => item.run_kind === 'deterministic' || (!item.parent_run_id && String(item.engine || '').startsWith('deterministic_')))
+  const run = deterministicRuns[0]
   if (!run) return <Empty description="当前事件没有可信确定性调查记录。" />
+  const agentRuns = (runs || []).filter((item: any) => item.parent_run_id === run.id)
+  const latestShadow = agentRuns.find((item: any) => item.run_kind === 'agent_shadow')
+  const latestOffline = agentRuns.find((item: any) => item.run_kind === 'agent_offline')
   const target = run.target_context || {}
   const findings = run.findings || []
   const tools = run.tool_executions || []
@@ -586,6 +653,22 @@ function TrustedInvestigationPanel({ runs, onReplay, replaying, canReplay }: { r
       <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="确定性事实" value={findings.length} /></Card></Col>
       <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="成本单位" value={run.budget_usage?.total_cost_units_used || 0} suffix={`/ ${run.budget?.max_total_cost_units || '-'}`} /></Card></Col>
     </Row>
+    <Card
+      title="确定性结果与 Agent Shadow 比较"
+      extra={canReplay && onAgentReplay ? <Button icon={<BranchesOutlined />} loading={agentReplaying} onClick={() => onAgentReplay(run.id)}>离线 Snapshot Agent Replay</Button> : undefined}
+    >
+      <Alert
+        type="info"
+        showIcon
+        message="Agent 只生成独立 Shadow 结果，不会替换确定性 Diagnosis"
+        description={`父级确定性 Run #${run.id} 保持唯一硬事实来源；Agent 子 Run 仅能引用已持久化 Finding，并接受独立契约与效果门槛校验。`}
+        style={{ marginBottom: 12 }}
+      />
+      {latestShadow || latestOffline ? <Tabs size="small" items={[
+        ...(latestShadow ? [{ key: 'shadow', label: `实时 Shadow #${latestShadow.id}`, children: <AgentRunSummary run={latestShadow} /> }] : []),
+        ...(latestOffline ? [{ key: 'offline', label: `离线 Replay #${latestOffline.id}`, children: <AgentRunSummary run={latestOffline} /> }] : []),
+      ]} /> : <Empty description="尚无 Agent 子 Run；新事件重新分析时会默认执行实时 Shadow，也可手动运行离线 Snapshot Replay。" />}
+    </Card>
     <Card title="调查预算与运行账本">
       <Descriptions bordered size="small" column={{ xs: 2, md: 4 }}>
         <Descriptions.Item label="步骤">{run.budget_usage?.steps_used || 0} / {run.budget?.max_steps || '-'}</Descriptions.Item>
@@ -676,10 +759,10 @@ function TrustedInvestigationPanel({ runs, onReplay, replaying, canReplay }: { r
       type="info"
       showIcon
       message="分析降级状态"
-      description={<Space direction="vertical" size={6}><Space wrap>{(run.degradation_reasons || []).map((item: string) => <Tag key={item}>{item}</Tag>)}</Space><span>Agent 调查尚未启用；当前只展示由代码确认的事实和工具审计。</span></Space>}
+      description={<Space direction="vertical" size={6}><Space wrap>{(run.degradation_reasons || []).map((item: string) => <Tag key={item}>{item}</Tag>)}</Space><span>该状态只描述确定性证据链的降级，不会被 Agent Shadow 覆盖。</span></Space>}
     />}
     {(run.diagnosis?.missing_evidence || []).length > 0 && <Alert type="warning" showIcon message="缺失证据" description={(run.diagnosis.missing_evidence || []).join('；')} />}
-    {runs.length > 1 && <Card title="可信调查历史"><Table rowKey="id" size="small" pagination={{ pageSize: 6 }} dataSource={runs} columns={[
+    {deterministicRuns.length > 1 && <Card title="确定性调查历史"><Table rowKey="id" size="small" pagination={{ pageSize: 6 }} dataSource={deterministicRuns} columns={[
       { title: 'Run', dataIndex: 'id', width: 80 },
       { title: '状态', dataIndex: 'status', render: (value) => <Tag>{value}</Tag> },
       { title: '停止原因', dataIndex: 'stop_reason' },
@@ -710,12 +793,20 @@ function IncidentDetailPage() {
     },
     onError: (error) => message.error(`重放失败：${apiErrorMessage(error)}`),
   })
+  const agentReplay = useMutation({
+    mutationFn: async (runId: number) => (await api.post(`/investigations/${runId}/agent-replay`)).data,
+    onSuccess: async (result) => {
+      message[result.agent_validation_status === 'INVALID' ? 'error' : 'success'](`离线 Agent Replay #${result.analysis_run_id}：${result.status}`)
+      await client.invalidateQueries({ queryKey: ['incident', id] })
+    },
+    onError: (error) => message.error(`离线 Agent Replay 失败：${apiErrorMessage(error)}`),
+  })
   if (query.isLoading) return <Card>加载中...</Card>
   if (query.error) return <Alert type="error" message="详情加载失败" description={apiErrorMessage(query.error)} />
   const data = query.data
   const latestAnalysis = data.analyses?.[0]
   const trustedInvestigations = data.trusted_investigations || []
-  const latestTrusted = trustedInvestigations[0]
+  const latestTrusted = trustedInvestigations.find((item: any) => item.run_kind === 'deterministic' || (!item.parent_run_id && String(item.engine || '').startsWith('deterministic_')))
   const latestEvidenceIds = new Set(latestAnalysis?.result?.evidence_refs || [])
   const citedIds = new Set((latestAnalysis?.result?.root_cause_hypotheses || []).flatMap((item: any) => item.evidence_refs || []))
   const latestEvidence = latestEvidenceIds.size ? (data.evidence || []).filter((item: any) => latestEvidenceIds.has(item.id)) : (data.evidence || [])
@@ -732,7 +823,7 @@ function IncidentDetailPage() {
     if (item.ends_at) timelineRows.push({ time: item.ends_at, type: 'alert', title: `${item.alertname} resolved`, detail: '告警恢复', color: 'green' })
   }
   for (const item of data.analyses || []) timelineRows.push({ time: item.finished_at || item.created_at, type: 'analysis', title: `分析 #${item.id} ${item.status}`, detail: item.model || '确定性证据分析', color: 'blue' })
-  for (const item of trustedInvestigations) timelineRows.push({ time: item.completed_at || item.created_at, type: 'trusted', title: `可信调查 #${item.id} ${item.status}`, detail: `${item.engine} · ${(item.findings || []).length} 个确定性事实`, color: (item.findings || []).length ? 'green' : 'gold' })
+  for (const item of trustedInvestigations) timelineRows.push({ time: item.completed_at || item.created_at, type: item.run_kind?.startsWith('agent_') ? 'agent' : 'trusted', title: `${item.run_kind?.startsWith('agent_') ? 'Agent Shadow' : '可信调查'} #${item.id} ${item.status}`, detail: `${item.engine} · ${item.run_kind?.startsWith('agent_') ? (item.diagnosis?.hypotheses || []).length + ' 个假设' : (item.findings || []).length + ' 个确定性事实'}`, color: item.run_kind?.startsWith('agent_') ? 'purple' : (item.findings || []).length ? 'green' : 'gold' })
   timelineRows.sort((a, b) => dayjs(b.time).valueOf() - dayjs(a.time).valueOf())
 
   const overview = <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -789,7 +880,7 @@ function IncidentDetailPage() {
       <Button type="primary" size="large" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button>
     </div>
     <Tabs className="incident-tabs" defaultActiveKey={latestTrusted ? 'trusted' : 'overview'} items={[
-      { key: 'trusted', label: `可信调查 (${trustedInvestigations.length})`, children: <TrustedInvestigationPanel runs={trustedInvestigations} onReplay={(runId) => replay.mutate(runId)} replaying={replay.isPending} canReplay={has('incidents.analyze')} /> },
+      { key: 'trusted', label: `可信调查 (${trustedInvestigations.length})`, children: <TrustedInvestigationPanel runs={trustedInvestigations} onReplay={(runId) => replay.mutate(runId)} onAgentReplay={(runId) => agentReplay.mutate(runId)} replaying={replay.isPending} agentReplaying={agentReplay.isPending} canReplay={has('incidents.analyze')} /> },
       { key: 'overview', label: '诊断概览', children: overview },
       { key: 'timeline', label: <Space><HistoryOutlined />变更时间线</Space>, children: timeline },
       { key: 'evidence', label: `全部证据 (${visibleEvidence.length})`, children: evidencePanel },

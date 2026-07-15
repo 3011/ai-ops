@@ -28,7 +28,7 @@ from app.investigation.tools.prometheus_resources import (
     GetMemoryUsageVsLimitTool,
 )
 
-TOOL_CATALOG_VERSION = "0.9.0-dev.4"
+TOOL_CATALOG_VERSION = "0.9.0"
 
 
 def build_default_registry() -> ToolRegistry:

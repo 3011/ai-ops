@@ -1149,3 +1149,97 @@ Duplicate Tool Call Rate <=10%
 10. dev.5 为什么仍不允许实时 Agent？
 
 能准确回答后，再开始 `0.9.0-dev.5`。
+
+---
+
+## 19. 0.9.0 最终完成状态（2026-07-15）
+
+本节取代第 15～18 节中针对 dev.5/dev.6/dev.7 的阶段性“禁止进入下一 Gate”说明。那些限制用于逐阶段开发；最终 0.9.0 已按独立 Shadow 架构完成，但下列永久安全边界仍然有效。
+
+### 19.1 已完成能力
+
+```text
+0.9.0-dev.5  Agent Protocol + ModelInvocation Artifact audit
+0.9.0-dev.6  Offline Snapshot Agent Replay + Validator 1.2.0
+0.9.0-dev.7  Independent real-time Agent Shadow + comparison UI
+0.9.0-rc.1   OOM/CPU eval + security regression
+0.9.0        investigation_mode=shadow
+```
+
+新增持久化：
+
+```text
+investigation_analysis_runs.parent_run_id
+investigation_analysis_runs.run_kind
+investigation_analysis_runs.source_snapshot_id
+investigation_analysis_runs.agent_validation_status
+investigation_analysis_runs.agent_validation_report_json
+investigation_model_invocations
+investigation_agent_evaluations
+```
+
+新增 API：
+
+```text
+POST /api/v1/investigations/{run_id}/agent-replay
+POST /api/v1/investigations/{run_id}/agent-shadow
+GET  /api/v1/investigations/{run_id}/comparison
+POST /api/v1/investigations/{run_id}/evaluate
+GET  /api/v1/investigation-evaluations/summary
+```
+
+### 19.2 最终权威边界
+
+- 确定性 Run 和 Finding 仍是 OOMKilled、CPU Spike 等硬事实的唯一权威来源；
+- Agent 使用独立子 Run、独立预算和独立 Diagnosis，不覆盖父级；
+- 模型失败只使子 Run 失败，Worker 的确定性完成状态不变；
+- Agent Validator 为 `INVALID` 时不创建正式 `InvestigationDiagnosisResult`；
+- Offline Replay 只消费 Snapshot 的模型可见 ToolResult，外部数据源访问数必须为 0；
+- Agent 只能选择九个注册只读工具，不允许自由 PromQL/LogQL，也没有 Kubernetes 写权限；
+- 日志与告警文本始终是不可信输入，不能单独把假设提升为 `highly_supported`；
+- 模型请求/响应必须保存脱敏 Artifact、Hash 和业务审计；框架 Trace 不能替代该审计。
+
+### 19.3 发布门槛
+
+安全门槛：
+
+```text
+未注册工具执行                     0
+虚构 Finding 引用                  0
+confirmed / 概率表达               0
+日志 Prompt Injection 行为改变     0
+Unsupported Hypothesis Rate        0
+OOM 硬事实一致率                  100%
+CPU Target Identity 一致率        >=95%
+模型失败影响父 Run                 0
+Offline Replay 外部数据源访问      0
+```
+
+效果目标：
+
+```text
+Useful Tool Call Rate             >=60%
+Duplicate Tool Call Rate          <=10%
+重要假设反证检查率                 >=80%
+预算耗尽率                         <=10%
+```
+
+### 19.4 测试基线
+
+```text
+后端 unittest：88 / 88 PASS（隔离 PostgreSQL）
+前端 npm run build：PASS
+Python compileall：PASS
+SQLAlchemy PostgreSQL DDL：PASS
+FastAPI OpenAPI：PASS
+```
+
+### 19.5 永久禁止事项
+
+- 不得让 Agent 改写确定性 Finding 或父级 Diagnosis；
+- 不得让模型确认 OOMKilled、CPU Spike 或具体代码根因；
+- 不得开放自由 PromQL、LogQL 或任意查询表达式；
+- 不得加入 Kubernetes 写工具、自动修复、自动扩缩容或删除/重启操作；
+- 不得把 `UNAVAILABLE` 解释为没有异常；
+- 不得删除 Run 1 的真实 legacy INVALID；
+- 不得输出 Secret、模型 Key、密码、Token 或数据库凭据。

@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.9.0-dev.4`
+- 当前 API：`0.9.0`
 
 ## Agent 交接
 
@@ -23,9 +23,11 @@ Prometheus → Alertmanager → FastAPI webhook
                           → 原始告警 PromQL + 通用 Prometheus/Loki 证据
                           → Kubernetes rollout / 镜像 / ConfigMap 元数据
                           → CI/CD 发布事件 / 可选 Tempo 或 Jaeger Trace
-                          → DeepSeek 受限动态 PromQL/LogQL 规划
-                          → 安全校验与只读执行
-                          → 结构化根因假设、覆盖度和缺口说明
+                          → DeepSeek 旧分析链路（兼容保留）
+                          → 可信确定性工具与 Finding
+                          → 独立 Agent Shadow / Offline Snapshot Replay
+                          → Agent 输出校验、模型 Artifact 审计与效果门槛
+                          → 结构化假设、覆盖度和缺口说明
 ```
 
 ## 当前能力
@@ -51,6 +53,29 @@ Prometheus → Alertmanager → FastAPI webhook
 - 生产视图默认隐藏 `aiops_test=true` 测试数据，可通过页面开关查看。
 
 
+## 可信 Agent Shadow（0.9.0）
+
+0.9.0 在确定性调查之外新增独立 Agent Runtime。确定性 Run 仍是硬事实的唯一权威来源，Agent 只能创建关联的子 Run：
+
+```text
+Run N   deterministic_cpu_v2 / deterministic_oom_v2
+Run N+1 agent_cpu_shadow_v1 / agent_oom_shadow_v1, parent_run_id=N
+```
+
+核心约束：
+
+- 默认 `INVESTIGATION_MODE=shadow`，但 Agent 失败不会修改父级 Run、Finding 或 Diagnosis；
+- Agent 只能调用 Tool Registry 中的九个只读工具，不能提交自由 PromQL、LogQL、query 或 expression；
+- Agent 假设只允许 `highly_supported`、`partially_supported`、`insufficient_evidence`、`contradicted`；
+- 禁止 `confirmed`、`root_cause_confirmed`、根因确认和概率百分比；
+- OOMKilled、CPU Spike 等硬事实只能引用已持久化 Finding，Agent 不得自行生成；
+- 模型请求与响应均脱敏后保存为 Artifact，并记录 URI、Hash、模型、Prompt 版本、Token、耗时和错误；
+- Agent 输出必须经过独立 Validator；`INVALID` 输出只保留审计与评估，不写入正式 `DiagnosisResult`；
+- Offline Agent Replay 只读取 Snapshot 中已保存的 ToolResult，缺失工具返回 `SNAPSHOT_TOOL_NOT_AVAILABLE`，不会访问实时数据源；
+- 事件详情可并排查看确定性结果、实时 Shadow、离线 Replay、Finding 引用、反证和发布门槛。
+
+发布评估覆盖：越权/未注册工具、虚构 Finding、确认性措辞、日志 Prompt Injection、Unsupported Hypothesis、OOM 硬事实一致性、CPU 目标一致性、模型失败隔离、离线零外部访问，以及有效调用、重复调用、反证检查和预算耗尽率。
+
 ## OOMKilled 可信调查（0.8.0）
 
 第一阶段新增独立于模型的可信调查链路：
@@ -68,7 +93,7 @@ Incident → TargetContext Resolver → get_container_termination_status
 - 只有 high 定位质量、OOMKilled termination reason 且终止时间在调查窗口内，才生成 `container_oom_killed` Finding；
 - `UNAVAILABLE`、`TARGET_UNCERTAIN` 和 `NOT_FOUND` 不会生成否定或确认 Finding；
 - Finding 必须关联 ToolExecution，工具保存结构化结果、模型可见摘要、原始结果 Hash、状态和错误语义；
-- Agent 尚未启用，成功确认后状态仍为 `COMPLETED_PARTIAL`，降级原因是 `AGENT_NOT_ENABLED`；
+- 该条描述 0.8.0 历史行为；0.9.0 已改为独立 Agent Shadow 子 Run，不再使用 `AGENT_NOT_ENABLED`；
 - 事件详情新增“可信调查”页，显示目标 UID、定位路径、确定性事实、工具审计和降级状态。
 
 现有 DeepSeek 分析仍并行保留，但不参与上述 OOMKilled 硬事实确认。
@@ -133,7 +158,7 @@ max_no_progress_rounds=2
 deadline=调查开始后 2 分钟
 ```
 
-Agent、第二个诊断工具、Snapshot Replay 和 Result Validator 仍未启用。
+该句描述 0.8.1 历史边界；0.9.0 已启用受控 Agent Shadow、Snapshot Replay 和 Result Validator。
 
 ## 可信 Prometheus 工具与 CPU 确定性调查（0.9.0-dev.1）
 

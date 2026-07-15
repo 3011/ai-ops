@@ -288,7 +288,8 @@ class InvestigationPersistenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(finding.confirmation_rule, "container_oom_killed_v1")
             self.assertIn(finding.id, diagnosis.fact_refs_json)
             self.assertIn(finding.id, tool.model_visible_output_json["finding_ids"])
-            self.assertIn("AGENT_NOT_ENABLED", diagnosis.degradation_reasons_json)
+            self.assertNotIn("AGENT_NOT_ENABLED", diagnosis.degradation_reasons_json)
+            self.assertEqual(run.run_kind, "deterministic")
 
     async def test_cache_reuses_result_and_isolated_by_target(self) -> None:
         incident_id = await self._create_incident()

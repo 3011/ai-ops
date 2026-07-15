@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import logging
 import re
 from typing import Any, Literal
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.db import SessionLocal
+from app.investigation.agents.service import run_agent_shadow
 from app.investigation.budget import BudgetLedger
 from app.investigation.catalog import TOOL_CATALOG_VERSION, build_default_registry
 from app.investigation.contracts import DiagnosisResultContract, InvestigationBudget, ToolResult
@@ -26,7 +29,7 @@ from app.models import (
 
 OOM_ENGINE = "deterministic_oom_v2"
 CPU_ENGINE = "deterministic_cpu_v1"
-ENGINE_VERSION = "0.9.0-dev.4"
+ENGINE_VERSION = "0.9.0"
 _OOM_TOKEN = re.compile(r"\b(?:oomkilled|oom[\s_-]?kill(?:ed)?|out[\s_-]+of[\s_-]+memory)\b", re.IGNORECASE)
 _OOM_ALERTNAMES = {
     "containeroomkilled",
@@ -37,6 +40,9 @@ _CPU_TOKEN = re.compile(
     r"\b(?:high[\s_-]+cpu|cpu[\s_-]+(?:spike|usage|saturation|throttling|high)|cpu[\s_-]*pressure)\b",
     re.IGNORECASE,
 )
+settings = get_settings()
+logger = logging.getLogger("aiops.investigation")
+
 _CPU_ALERTNAMES = {
     "highcpu",
     "containerhighcpu",
@@ -99,7 +105,7 @@ def _diagnosis_for_unresolved(status: ToolStatus, message: str, *, mode: Literal
         missing_evidence=[message],
         recommended_checks=["确认告警包含 namespace、pod、uid 和 container 标签。"],
         risk_notes=["目标未可靠固定时，禁止输出对象级确认事实。"],
-        degradation_reasons=[reason, "AGENT_NOT_ENABLED"],
+        degradation_reasons=[reason],
         analysis_mode="deterministic_oom_v2" if mode == "oom" else "deterministic_cpu_v1",
     )
 
@@ -122,7 +128,7 @@ def _stop_reason_for_results(results: list[ToolResult]) -> StopReason:
             return StopReason.NO_PROGRESS
         if result.error_code in {"MAX_TOOL_CALLS_REACHED", "MAX_SAME_TOOL_CALLS_REACHED", "COST_BUDGET_EXHAUSTED"}:
             return StopReason.BUDGET_EXHAUSTED
-    return StopReason.AGENT_NOT_ENABLED
+    return StopReason.NO_MORE_USEFUL_TOOLS
 
 
 def _tool_degradation(result: ToolResult) -> tuple[list[str], list[str]]:
@@ -307,7 +313,7 @@ async def _run_investigation(incident_id: int, *, mode: Literal["oom", "cpu"]) -
         fact_refs = list(dict.fromkeys(finding_id for result in results for finding_id in result.finding_ids))
         findings = await _finding_types(session, fact_refs)
         missing: list[str] = []
-        degradation = ["AGENT_NOT_ENABLED"]
+        degradation: list[str] = []
         for result in results:
             tool_missing, tool_degradation = _tool_degradation(result)
             missing.extend(tool_missing)
@@ -401,4 +407,18 @@ async def run_trusted_investigations(incident_id: int) -> list[int]:
         run_id = await runner(incident_id)
         if run_id is not None:
             run_ids.append(run_id)
+
+    if settings.investigation_mode.casefold() == "shadow":
+        for parent_run_id in run_ids:
+            try:
+                agent_run_id = await run_agent_shadow(parent_run_id)
+                logger.info(
+                    "agent shadow completed parent_run=%s agent_run=%s incident=%s",
+                    parent_run_id, agent_run_id, incident_id,
+                )
+            except Exception as exc:  # shadow failure must not alter deterministic completion
+                logger.exception(
+                    "agent shadow failed parent_run=%s incident=%s: %s",
+                    parent_run_id, incident_id, exc,
+                )
     return run_ids

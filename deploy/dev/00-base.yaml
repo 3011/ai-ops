@@ -38,9 +38,11 @@ data:
   INVESTIGATION_RAW_JSON_MAX_BYTES: "65536"
   INVESTIGATION_COLLECTION_MAX_ITEMS: "200"
   INVESTIGATION_STRING_MAX_CHARS: "4000"
-  APP_VERSION: "0.9.0-dev.4"
-  APP_RELEASE_TITLE: "冻结调查输入与历史 Replay 适配"
-  APP_RELEASE_SUMMARY: "在 AnalysisRun 创建时冻结真实输入，并使用版本化适配器恢复 0.8.x/0.9.x 历史 Replay。"
-  APP_RELEASE_CHANGES: '["AnalysisRun 原生输入冻结","数据库不可变触发器","native_frozen/historical_reconstructed/legacy_incomplete 来源模式","0.8.x 与 0.9.x 历史输入适配","Incident 后续变化不影响旧 Snapshot","真实 legacy contract violation 保留"]'
+  INVESTIGATION_MODE: "shadow"
+  AGENT_MODEL_TIMEOUT_SECONDS: "45"
+  APP_VERSION: "0.9.0"
+  APP_RELEASE_TITLE: "可信 Agent Shadow 调查与离线重放"
+  APP_RELEASE_SUMMARY: "在确定性调查之外增加独立 Agent Shadow、离线 Snapshot Replay、模型调用审计、比较界面和安全评估门槛。"
+  APP_RELEASE_CHANGES: '["框架无关 InvestigationAgent Protocol","Agent 输入输出契约与独立校验","模型请求响应 Artifact 审计","离线 Snapshot Agent Replay","独立实时 Agent Shadow Run","确定性与 Agent 比较界面","OOM/CPU 安全与效果评估门槛","默认 investigation_mode=shadow"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

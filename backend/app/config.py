@@ -28,14 +28,16 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str | None = None
     session_hours: int = 8
     cookie_secure: bool = False
-    app_version: str = "0.9.0-dev.4"
-    app_release_title: str = "冻结调查输入与历史 Replay 适配"
-    app_release_summary: str = "在 AnalysisRun 创建时冻结真实输入，并使用版本化适配器恢复 0.8.x/0.9.x 历史 Replay。"
-    app_release_changes: str = '["AnalysisRun 原生输入冻结","数据库不可变触发器","native_frozen/historical_reconstructed/legacy_incomplete 来源模式","0.8.x 与 0.9.x 历史输入适配","Incident 后续变化不影响旧 Snapshot","真实 legacy contract violation 保留"]'
+    app_version: str = "0.9.0"
+    app_release_title: str = "可信 Agent Shadow 调查与离线重放"
+    app_release_summary: str = "在确定性调查之外增加独立 Agent Shadow、离线 Snapshot Replay、模型调用审计、比较界面和安全评估门槛。"
+    app_release_changes: str = '["框架无关 InvestigationAgent Protocol","Agent 输入输出契约与独立校验","模型请求响应 Artifact 审计","离线 Snapshot Agent Replay","独立实时 Agent Shadow Run","确定性与 Agent 比较界面","OOM/CPU 安全与效果评估门槛","默认 investigation_mode=shadow"]'
     git_commit: str = ""
     investigation_raw_json_max_bytes: int = 65_536
     investigation_collection_max_items: int = 200
     investigation_string_max_chars: int = 4_000
+    investigation_mode: str = "shadow"
+    agent_model_timeout_seconds: float = 45.0
 
 
 @lru_cache

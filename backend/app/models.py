@@ -246,6 +246,11 @@ class InvestigationAnalysisRun(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     incident_id: Mapped[int] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_run_id: Mapped[int | None] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="SET NULL"), index=True)
+    run_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="deterministic")
+    source_snapshot_id: Mapped[str | None] = mapped_column(String(64))
+    agent_validation_status: Mapped[str | None] = mapped_column(String(32))
+    agent_validation_report_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     stop_reason: Mapped[str | None] = mapped_column(String(64))
     degradation_reasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
@@ -361,4 +366,52 @@ class InvestigationDiagnosisResult(Base):
     risk_notes_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     degradation_reasons_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     validated_output_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class InvestigationModelInvocation(Base):
+    __tablename__ = "investigation_model_invocations"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "sequence_number", name="uq_investigation_model_invocation_sequence"),
+        Index("ix_investigation_model_invocations_run", "analysis_run_id", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    analysis_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    invocation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    model_parameters_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    prompt_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_snapshot_uri: Mapped[str] = mapped_column(String(1000), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_snapshot_uri: Mapped[str | None] = mapped_column(String(1000))
+    response_hash: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestigationAgentEvaluation(Base):
+    __tablename__ = "investigation_agent_evaluations"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "suite_version", name="uq_investigation_agent_evaluation_suite"),
+        Index("ix_investigation_agent_evaluations_run", "analysis_run_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    analysis_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_run_id: Mapped[int] = mapped_column(ForeignKey("investigation_analysis_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    suite_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    gates_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

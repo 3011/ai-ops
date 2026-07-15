@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0 - 可信 Agent Shadow 调查与离线重放
+
+- 新增框架无关 `InvestigationAgent`、`AgentToolRuntime`、输入/输出和 Hypothesis 契约；
+- 新增受控结构化模型循环、Schema 修复、预算上限和 Prompt Injection 隔离；
+- 新增 `investigation_model_invocations`，模型请求/响应脱敏后保存 Artifact URI、Hash、Token、耗时和错误；
+- 新增独立 `agent_shadow` 与 `agent_offline` 子 Run，使用 `parent_run_id` 关联确定性父 Run；
+- 默认 `INVESTIGATION_MODE=shadow`，Agent 或模型失败不会改变确定性 Finding、Diagnosis 和完成状态；
+- Agent 只能调用九个注册只读工具，不接受自由 PromQL、LogQL、query 或 expression；
+- 新增 Offline Snapshot Tool Runtime，缺失调用返回 `SNAPSHOT_TOOL_NOT_AVAILABLE`，禁止实时数据源访问；
+- Replay Snapshot/Validator 升级至 `1.2.0`，校验父级 Finding、模型 Artifact、Agent Validation 和离线复用关系；
+- Agent 输出禁止确认性措辞和概率百分比；虚构 Finding、日志单独 high support、未注册工具均判为 `INVALID`；
+- `INVALID` Agent 输出只保留模型审计、校验报告和评估，不进入正式 `DiagnosisResult`；
+- 新增 OOM/CPU 安全与效果评估及聚合发布门槛；
+- 事件详情新增确定性结果、实时 Shadow、离线 Replay、假设支持/反证、模型 Artifact 和评估对比；
+- 新增手动 Agent Shadow、Offline Replay、Comparison、Evaluation 和聚合 Evaluation API；
+- 后端 88 项测试（含隔离 PostgreSQL）通过，前端生产构建通过。
+
 ## 0.9.0-dev.4 - 冻结调查输入与历史 Replay 适配
 
 - 在 `InvestigationAnalysisRun` 创建时写入不可变 `run_input_json`、Schema、来源 Hash 和来源模式。

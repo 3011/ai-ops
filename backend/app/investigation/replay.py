@@ -18,12 +18,13 @@ from app.models import (
     InvestigationAnalysisRun,
     InvestigationDiagnosisResult,
     InvestigationFinding,
+    InvestigationModelInvocation,
     InvestigationReplaySnapshot,
     InvestigationToolExecution,
 )
 
-SNAPSHOT_SCHEMA_VERSION = "1.1.0"
-VALIDATOR_VERSION = "1.1.0"
+SNAPSHOT_SCHEMA_VERSION = "1.2.0"
+VALIDATOR_VERSION = "1.2.0"
 MAX_SNAPSHOT_BYTES = 512 * 1024
 
 ValidationSeverity = Literal["error", "warning"]
@@ -189,11 +190,20 @@ class ResultValidator:
             issue("DUPLICATE_TOOL_SEQUENCE", "$.tool_executions", "工具执行顺序号重复。")
 
         findings = payload.get("findings") or []
+        source_findings = payload.get("source_findings") or []
         finding_by_id = {str(item.get("id")): item for item in findings}
+        source_finding_by_id = {str(item.get("id")): item for item in source_findings}
+        all_finding_by_id = {**source_finding_by_id, **finding_by_id}
         checks["unique_findings"] = len(findings) == len(finding_by_id)
+        checks["unique_source_findings"] = len(source_findings) == len(source_finding_by_id)
         if not checks["unique_findings"]:
             issue("DUPLICATE_FINDING_ID", "$.findings", "Finding ID 重复。")
+        if not checks["unique_source_findings"]:
+            issue("DUPLICATE_SOURCE_FINDING_ID", "$.source_findings", "父级 Finding ID 重复。")
+        if set(finding_by_id) & set(source_finding_by_id):
+            issue("FINDING_ID_COLLISION", "$.source_findings", "父级与当前 Run Finding ID 冲突。")
 
+        run_kind = str(run.get("run_kind") or "deterministic")
         tool_by_id = {str(item.get("execution_id")): item for item in tools}
         for index, tool in enumerate(tools):
             path = f"$.tool_executions[{index}]"
@@ -220,7 +230,12 @@ class ResultValidator:
                 str(item.get("id")) for item in findings
                 if str(item.get("tool_execution_id")) == str(tool.get("execution_id"))
             ]
-            if set(output_ids) != set(persisted_ids):
+            if run_kind == "agent_offline":
+                if not set(output_ids).issubset(set(source_finding_by_id)):
+                    issue("SNAPSHOT_TOOL_FINDING_REF_UNKNOWN", f"{path}.result.finding_ids", "离线 Replay ToolResult 引用了 Snapshot 之外的 Finding。")
+                if output.get("reused_execution_id") is None and output_ids:
+                    issue("SNAPSHOT_TOOL_REUSE_MISSING", f"{path}.result.reused_execution_id", "离线 Replay ToolResult 必须关联来源 ToolExecution。")
+            elif set(output_ids) != set(persisted_ids):
                 issue("TOOL_FINDING_REF_MISMATCH", f"{path}.result.finding_ids", "ToolResult Finding 引用与持久化 Finding 不一致。")
             if output.get("status") != tool.get("status"):
                 issue("TOOL_STATUS_MISMATCH", f"{path}.result.status", "模型可见状态与 ToolExecution 状态不一致。")
@@ -249,16 +264,37 @@ class ResultValidator:
 
         diagnosis = payload.get("diagnosis") or {}
         fact_refs = [str(value) for value in (diagnosis.get("fact_refs") or [])]
-        finding_ids = set(finding_by_id)
+        finding_ids = set(all_finding_by_id)
         checks["diagnosis_refs_exist"] = set(fact_refs).issubset(finding_ids)
         if not checks["diagnosis_refs_exist"]:
             missing = sorted(set(fact_refs) - finding_ids)
             issue("DIAGNOSIS_DANGLING_FACT_REF", "$.diagnosis.fact_refs", f"Diagnosis 引用了不存在的 Finding：{missing}")
-        checks["diagnosis_refs_complete"] = set(fact_refs) == finding_ids
-        if not checks["diagnosis_refs_complete"]:
-            issue("DIAGNOSIS_FACT_SET_MISMATCH", "$.diagnosis.fact_refs", "Diagnosis fact_refs 未完整覆盖持久化 Finding。")
+        if run_kind == "deterministic":
+            checks["diagnosis_refs_complete"] = set(fact_refs) == set(finding_by_id)
+            if not checks["diagnosis_refs_complete"]:
+                issue("DIAGNOSIS_FACT_SET_MISMATCH", "$.diagnosis.fact_refs", "Diagnosis fact_refs 未完整覆盖持久化 Finding。")
+        else:
+            checks["diagnosis_refs_complete"] = True
         if str(diagnosis.get("analysis_mode") or "").startswith("deterministic_") and diagnosis.get("hypotheses"):
             issue("DETERMINISTIC_HYPOTHESIS_NOT_ALLOWED", "$.diagnosis.hypotheses", "确定性模式不得写入模型假设。")
+
+        if run_kind.startswith("agent_"):
+            agent_validation = run.get("agent_validation_report") or {}
+            checks["agent_validation_present"] = bool(agent_validation)
+            if not agent_validation:
+                issue("AGENT_VALIDATION_MISSING", "$.analysis_run.agent_validation_report", "Agent Run 缺少独立输出校验报告。")
+            elif agent_validation.get("status") == "INVALID":
+                issue("AGENT_OUTPUT_INVALID", "$.analysis_run.agent_validation_report", "Agent 输出未通过独立校验。")
+            invocations = payload.get("model_invocations") or []
+            checks["model_invocation_audit"] = bool(invocations) or run.get("status") == "FAILED"
+            if not checks["model_invocation_audit"]:
+                issue("MODEL_INVOCATION_AUDIT_MISSING", "$.model_invocations", "Agent Run 缺少模型调用审计。")
+            for index, invocation in enumerate(invocations):
+                path = f"$.model_invocations[{index}]"
+                if not invocation.get("request_snapshot_uri") or not invocation.get("request_hash"):
+                    issue("MODEL_REQUEST_AUDIT_INCOMPLETE", path, "模型请求缺少 Artifact URI 或 Hash。")
+                if invocation.get("status") == "SUCCEEDED" and (not invocation.get("response_snapshot_uri") or not invocation.get("response_hash")):
+                    issue("MODEL_RESPONSE_AUDIT_INCOMPLETE", path, "成功模型调用缺少响应 Artifact URI 或 Hash。")
 
         size = _json_size(payload)
         checks["snapshot_size"] = size <= MAX_SNAPSHOT_BYTES
@@ -297,6 +333,24 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
         .order_by(InvestigationFinding.created_at, InvestigationFinding.id)
     )).all())
     diagnosis = await session.get(InvestigationDiagnosisResult, run.id)
+    model_invocations = list((await session.scalars(
+        select(InvestigationModelInvocation)
+        .where(InvestigationModelInvocation.analysis_run_id == run.id)
+        .order_by(InvestigationModelInvocation.sequence_number, InvestigationModelInvocation.id)
+    )).all())
+    source_findings: list[dict[str, Any]] = []
+    if run.parent_run_id is not None:
+        source_snapshot = None
+        if run.source_snapshot_id:
+            source_snapshot = await session.get(InvestigationReplaySnapshot, run.source_snapshot_id)
+        if source_snapshot is None:
+            source_snapshot = await session.scalar(
+                select(InvestigationReplaySnapshot)
+                .where(InvestigationReplaySnapshot.analysis_run_id == run.parent_run_id)
+                .order_by(InvestigationReplaySnapshot.created_at.desc(), InvestigationReplaySnapshot.id.desc())
+                .limit(1)
+            )
+        source_findings = list(((source_snapshot.snapshot_json if source_snapshot else {}) or {}).get("findings") or [])
     run_input = resolved_input.payload
     target_context = redact_sensitive(run.target_context_json or {})
     payload = {
@@ -312,6 +366,11 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
         "analysis_run": {
             "id": run.id,
             "incident_id": run.incident_id,
+            "parent_run_id": run.parent_run_id,
+            "run_kind": run.run_kind,
+            "source_snapshot_id": run.source_snapshot_id,
+            "agent_validation_status": run.agent_validation_status,
+            "agent_validation_report": redact_sensitive(run.agent_validation_report_json or {}),
             "status": run.status,
             "stop_reason": run.stop_reason,
             "degradation_reasons": run.degradation_reasons or [],
@@ -345,6 +404,7 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
             "started_at": tool.started_at.isoformat(),
             "completed_at": tool.completed_at.isoformat(),
         } for tool in tools],
+        "source_findings": redact_sensitive(source_findings),
         "findings": [{
             "id": finding.id,
             "finding_type": finding.finding_type,
@@ -357,6 +417,28 @@ async def build_replay_payload(session: AsyncSession, analysis_run_id: int) -> t
             "parser_version": finding.parser_version,
             "confirmation_rule": finding.confirmation_rule,
         } for finding in findings],
+        "model_invocations": [{
+            "id": invocation.id,
+            "sequence_number": invocation.sequence_number,
+            "invocation_type": invocation.invocation_type,
+            "runtime_name": invocation.runtime_name,
+            "runtime_version": invocation.runtime_version,
+            "provider": invocation.provider,
+            "model": invocation.model,
+            "model_parameters": redact_sensitive(invocation.model_parameters_json or {}),
+            "prompt_version": invocation.prompt_version,
+            "request_snapshot_uri": invocation.request_snapshot_uri,
+            "request_hash": invocation.request_hash,
+            "response_snapshot_uri": invocation.response_snapshot_uri,
+            "response_hash": invocation.response_hash,
+            "status": invocation.status,
+            "input_tokens": invocation.input_tokens,
+            "output_tokens": invocation.output_tokens,
+            "latency_ms": invocation.latency_ms,
+            "error_code": invocation.error_code,
+            "started_at": invocation.started_at.isoformat(),
+            "completed_at": invocation.completed_at.isoformat() if invocation.completed_at else None,
+        } for invocation in model_invocations],
         "diagnosis": ({
             "summary": diagnosis.summary,
             "fact_refs": diagnosis.fact_refs_json or [],

@@ -20,6 +20,8 @@ from app.config import get_settings
 from app.db import SessionLocal, get_session, init_database
 from app.auth import principal_from_request, record_audit, seed_auth_and_release
 from app.governance import router as governance_router
+from app.investigation.agents.evaluation import aggregate_agent_evaluations, persist_agent_evaluation
+from app.investigation.agents.service import execute_agent_run
 from app.investigation.repositories import investigation_payloads
 from app.investigation.replay import backfill_replay_snapshots, create_replay_snapshot, replay_snapshot_payload
 from app.model_config import (
@@ -318,6 +320,8 @@ def route_permission(method: str, path: str) -> str | None:
         return "incidents.analyze" if method != "GET" else "incidents.view"
     if path.startswith("/api/v1/investigations"):
         return "incidents.analyze" if method != "GET" else "incidents.view"
+    if path.startswith("/api/v1/investigation-evaluations"):
+        return "incidents.view"
     if path.startswith(("/api/v1/alerts", "/api/v1/webhook-deliveries", "/api/v1/analysis-jobs")):
         return "incidents.view"
     if path.startswith("/api/v1/change-events"):
@@ -1308,6 +1312,152 @@ async def replay_investigation(
     )
     await session.commit()
     return replay_snapshot_payload(row, include_snapshot=True)
+
+
+@app.get("/api/v1/investigation-evaluations/summary")
+async def investigation_agent_evaluation_summary(
+    limit: int = 200,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    return await aggregate_agent_evaluations(session, limit=limit)
+
+
+@app.post("/api/v1/investigations/{analysis_run_id}/agent-replay")
+async def replay_investigation_with_agent(
+    analysis_run_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    parent = await session.get(InvestigationAnalysisRun, analysis_run_id)
+    if parent is None:
+        raise HTTPException(404, "analysis run not found")
+    if parent.run_kind != "deterministic" and not parent.engine.startswith("deterministic_"):
+        raise HTTPException(400, "agent replay requires a deterministic parent run")
+    child_id = await execute_agent_run(session, parent.id, run_mode="offline_replay")
+    child = await session.get(InvestigationAnalysisRun, child_id)
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="investigation_agent_offline_replayed",
+        resource_type="investigation_analysis_run",
+        resource_id=str(child_id),
+        details={
+            "parent_run_id": parent.id,
+            "agent_validation_status": child.agent_validation_status if child else None,
+            "source_snapshot_id": child.source_snapshot_id if child else None,
+        },
+        request=request,
+    )
+    await session.commit()
+    return {
+        "accepted": True,
+        "parent_run_id": parent.id,
+        "analysis_run_id": child_id,
+        "run_kind": child.run_kind if child else "agent_offline",
+        "status": child.status if child else None,
+        "agent_validation_status": child.agent_validation_status if child else None,
+    }
+
+
+@app.post("/api/v1/investigations/{analysis_run_id}/agent-shadow")
+async def run_investigation_agent_shadow(
+    analysis_run_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    parent = await session.get(InvestigationAnalysisRun, analysis_run_id)
+    if parent is None:
+        raise HTTPException(404, "analysis run not found")
+    if parent.run_kind != "deterministic" and not parent.engine.startswith("deterministic_"):
+        raise HTTPException(400, "agent shadow requires a deterministic parent run")
+    child_id = await execute_agent_run(session, parent.id, run_mode="realtime_shadow")
+    child = await session.get(InvestigationAnalysisRun, child_id)
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="investigation_agent_shadow_run",
+        resource_type="investigation_analysis_run",
+        resource_id=str(child_id),
+        details={
+            "parent_run_id": parent.id,
+            "agent_validation_status": child.agent_validation_status if child else None,
+        },
+        request=request,
+    )
+    await session.commit()
+    return {
+        "accepted": True,
+        "parent_run_id": parent.id,
+        "analysis_run_id": child_id,
+        "run_kind": child.run_kind if child else "agent_shadow",
+        "status": child.status if child else None,
+        "agent_validation_status": child.agent_validation_status if child else None,
+    }
+
+
+@app.get("/api/v1/investigations/{analysis_run_id}/comparison")
+async def compare_investigation_runs(
+    analysis_run_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    selected = await session.get(InvestigationAnalysisRun, analysis_run_id)
+    if selected is None:
+        raise HTTPException(404, "analysis run not found")
+    parent_id = selected.parent_run_id or selected.id
+    parent = await session.get(InvestigationAnalysisRun, parent_id)
+    if parent is None:
+        raise HTTPException(404, "parent analysis run not found")
+    runs = await investigation_payloads(session, parent.incident_id, limit=100)
+    parent_payload = next((item for item in runs if item["id"] == parent.id), None)
+    children = [item for item in runs if item.get("parent_run_id") == parent.id]
+    children.sort(key=lambda item: item.get("created_at") or datetime.min.replace(tzinfo=UTC), reverse=True)
+    return {
+        "parent": parent_payload,
+        "agent_runs": children,
+        "latest_shadow": next((item for item in children if item.get("run_kind") == "agent_shadow"), None),
+        "latest_offline_replay": next((item for item in children if item.get("run_kind") == "agent_offline"), None),
+        "safety": {
+            "deterministic_result_unchanged": parent.status in {"COMPLETED", "COMPLETED_PARTIAL", "INCONCLUSIVE"},
+            "agent_results_are_shadow_only": all(item.get("parent_run_id") == parent.id for item in children),
+            "invalid_agent_results_excluded_from_parent": parent.run_kind == "deterministic",
+        },
+    }
+
+
+@app.post("/api/v1/investigations/{analysis_run_id}/evaluate")
+async def evaluate_investigation_agent_run(
+    analysis_run_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    run = await session.get(InvestigationAnalysisRun, analysis_run_id)
+    if run is None:
+        raise HTTPException(404, "analysis run not found")
+    if not run.run_kind.startswith("agent_") or run.parent_run_id is None:
+        raise HTTPException(400, "evaluation requires an agent child run")
+    evaluation = await persist_agent_evaluation(
+        session,
+        run.id,
+        offline_source_access_count=0 if run.run_kind == "agent_offline" else None,
+    )
+    await record_audit(
+        session,
+        principal=request.state.principal,
+        action="investigation_agent_evaluated",
+        resource_type="investigation_analysis_run",
+        resource_id=str(run.id),
+        details={"suite_version": evaluation.suite_version, "status": evaluation.status},
+        request=request,
+    )
+    await session.commit()
+    return {
+        "analysis_run_id": run.id,
+        "parent_run_id": run.parent_run_id,
+        "suite_version": evaluation.suite_version,
+        "status": evaluation.status,
+        "metrics": evaluation.metrics_json or {},
+        "gates": evaluation.gates_json or {},
+    }
 
 
 @app.post("/api/v1/incidents/{incident_id}/reanalyze", status_code=202)
