@@ -21,4 +21,4 @@ kubectl rollout status deployment/aiops-worker -n "$NS" --timeout=300s
 kubectl rollout status deployment/aiops-web -n "$NS" --timeout=300s
 kubectl get pods,svc,pvc -n "$NS" -o wide
 echo "Web: http://172.30.10.11:30300"
-echo "API docs: http://172.30.10.11:30800/docs"
+echo "API docs: http://172.30.10.11:30801/docs"

@@ -5,6 +5,9 @@ metadata:
   namespace: aiops-dev
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels: {app: aiops-web}
   template:
@@ -17,14 +20,24 @@ spec:
       initContainers:
         - name: install-dependencies
           image: node:22-alpine
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          env:
+            - {name: NODE_OPTIONS, value: --dns-result-order=ipv4first}
           workingDir: /workspace
-          command: ["sh", "-ec", "npm install --no-package-lock"]
+          command: ["sh", "-ec", "npm install --no-package-lock --registry=https://registry.npmmirror.com"]
           volumeMounts:
             - {name: source, mountPath: /workspace}
             - {name: node-modules, mountPath: /workspace/node_modules}
       containers:
         - name: web
           image: node:22-alpine
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          env:
+            - {name: NODE_OPTIONS, value: --dns-result-order=ipv4first}
           workingDir: /workspace
           command: ["sh", "-ec", "npm run dev"]
           env:
