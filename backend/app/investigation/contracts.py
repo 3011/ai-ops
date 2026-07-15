@@ -166,4 +166,4 @@ class DiagnosisResultContract(BaseModel):
     recommended_checks: list[str] = Field(default_factory=list)
     risk_notes: list[str] = Field(default_factory=list)
     degradation_reasons: list[str] = Field(default_factory=list)
-    analysis_mode: Literal["deterministic_oom_v1"] = "deterministic_oom_v1"
+    analysis_mode: Literal["deterministic_oom_v1", "deterministic_oom_v2", "deterministic_cpu_v1"] = "deterministic_oom_v1"

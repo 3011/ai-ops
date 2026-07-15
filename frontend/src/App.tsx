@@ -502,23 +502,57 @@ function EvidenceCard({ evidence }: { evidence: any }) {
 }
 
 
+function formatBytes(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let current = value
+  let index = 0
+  while (Math.abs(current) >= 1024 && index < units.length - 1) { current /= 1024; index += 1 }
+  return `${current.toFixed(index >= 2 ? 2 : 1)} ${units[index]}`
+}
+
+function formatRatio(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '-'
+}
+
+function trustedFindingTitle(finding: any) {
+  const value = finding.value || {}
+  const container = finding.subject?.container_name || '-'
+  switch (finding.finding_type) {
+    case 'container_oom_killed': return `容器 ${container} 因 OOMKilled 终止`
+    case 'memory_limit_reached': return `内存峰值达到 limit 的 ${formatRatio(value.peak_limit_ratio)}`
+    case 'memory_near_limit': return `内存峰值接近 limit：${formatRatio(value.peak_limit_ratio)}`
+    case 'memory_usage_increased': return `内存使用由 ${formatBytes(value.first_working_set_bytes)} 增长至 ${formatBytes(value.observed_peak_bytes)}`
+    case 'container_cpu_spike': return `容器 ${container} 发生 CPU Spike：峰值 ${Number(value.peak_cores || 0).toFixed(3)} Core`
+    case 'cpu_request_saturated': return `CPU 峰值达到 request 的 ${formatRatio(value.peak_request_ratio)}`
+    case 'cpu_near_limit': return `CPU 峰值接近 limit：${formatRatio(value.peak_limit_ratio)}`
+    case 'cpu_throttling_sustained': return `观察到持续 CPU throttling：峰值 periods 比例 ${formatRatio(value.period_ratio_peak)}`
+    case 'cpu_throttling_observed': return `观察到 CPU throttling：峰值 periods 比例 ${formatRatio(value.period_ratio_peak)}`
+    default: return finding.finding_type
+  }
+}
+
+function trustedFindingSource(finding: any) {
+  return finding.finding_type === 'container_oom_killed'
+    ? 'Kubernetes ContainerStatus'
+    : 'Prometheus 受控指标工具'
+}
+
+
 function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
   const run = runs?.[0]
-  if (!run) return <Empty description="当前事件没有 OOMKilled 可信调查记录；第一阶段仅对 OOM 候选事件运行。" />
+  if (!run) return <Empty description="当前事件没有可信确定性调查记录。" />
   const target = run.target_context || {}
   const findings = run.findings || []
   const tools = run.tool_executions || []
-  const oomFindings = findings.filter((item: any) => item.finding_type === 'container_oom_killed')
   const quality = target.resolution_quality
   const statusColor = run.status === 'COMPLETED' ? 'green' : run.status === 'COMPLETED_PARTIAL' ? 'gold' : run.status === 'FAILED' ? 'red' : 'blue'
   return <Space direction="vertical" size={16} style={{ width: '100%' }}>
     <Alert
-      type={oomFindings.length ? 'success' : 'warning'}
+      type={findings.length ? 'success' : 'warning'}
       showIcon
-      message={oomFindings.length ? '已确认 OOMKilled 硬事实' : '当前未生成 OOMKilled 确定性事实'}
-      description={oomFindings.length
-        ? oomFindings.map((finding: any) => `容器 ${finding.subject?.container_name || '-'} 于 ${formatTime(finding.event_time)} 因 OOMKilled 终止。`).join('；')
-        : run.diagnosis?.summary || '目标或证据未满足确认规则。'}
+      message={findings.length ? `已生成 ${findings.length} 条确定性事实` : '当前未生成确定性事实'}
+      description={run.diagnosis?.summary || '目标或证据未满足确认规则。'}
     />
     <Row gutter={[16, 16]}>
       <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="调查状态" value={run.status} valueStyle={{ fontSize: 16 }} /></Card></Col>
@@ -558,10 +592,10 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
         <Card title="确定性事实" style={{ height: '100%' }}>
           {findings.length ? <List dataSource={findings} renderItem={(finding: any) => <List.Item>
             <List.Item.Meta
-              title={<Space wrap><Tag color="green">{finding.finding_type}</Tag><strong>{finding.finding_type === 'container_oom_killed' ? `容器 ${finding.subject?.container_name} 因 OOMKilled 终止` : finding.finding_type}</strong></Space>}
+              title={<Space wrap><Tag color="green">{finding.finding_type}</Tag><strong>{trustedFindingTitle(finding)}</strong></Space>}
               description={<Space direction="vertical" size={3}>
                 <span>发生时间：{formatTime(finding.event_time)}</span>
-                <span>确认来源：Kubernetes ContainerStatus · ToolExecution #{finding.tool_execution_id}</span>
+                <span>确认来源：{trustedFindingSource(finding)} · ToolExecution #{finding.tool_execution_id}</span>
                 <span>规则：{finding.confirmation_rule} · Parser {finding.parser_version} · 质量 {finding.quality}</span>
               </Space>}
             />

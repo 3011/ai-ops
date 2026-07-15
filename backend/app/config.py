@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str | None = None
     session_hours: int = 8
     cookie_secure: bool = False
-    app_version: str = "0.8.1"
-    app_release_title: str = "可信 Tool Runtime 加固"
-    app_release_summary: str = "将单工具调查重构为通用注册、预算、缓存、失败语义和 Artifact 管线。"
-    app_release_changes: str = '["ToolRegistry 与通用 ToolRuntime.execute","InvestigationBudget 与 BudgetLedger","同 Run、同 Target、同参数缓存复用","Kubernetes 404/403/429/5xx/超时精确语义","Resolver 分页、直接 GET 与 controller owner","Finding 自动回填 ToolResult","Artifact 脱敏、截断、压缩和完整 Hash"]'
+    app_version: str = "0.9.0-dev.1"
+    app_release_title: str = "可信 Prometheus 工具与 CPU 确定性闭环"
+    app_release_summary: str = "新增受 TargetContext 约束的内存、CPU 和 throttling 工具，并建立无 Agent 的 CPU Spike 确定性调查。"
+    app_release_changes: str = '["PrometheusReadClient 统一错误与范围限制","get_memory_usage_vs_limit","get_cpu_usage_vs_request_limit","get_cpu_throttling","内存与 CPU 确定性 Finding","CPU Spike 无 Agent 调查链路","真实 OOM 与 CPU 压测场景"]'
     git_commit: str = ""
     investigation_raw_json_max_bytes: int = 65_536
     investigation_collection_max_items: int = 200

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0-dev.1 - 可信 Prometheus 工具与 CPU 确定性闭环
+
+- 建立受控 `PrometheusReadClient`，统一范围、步长、序列数、数据点和错误语义；
+- 新增 `get_memory_usage_vs_limit`、`get_cpu_usage_vs_request_limit`、`get_cpu_throttling`；
+- 对 cAdvisor 序列执行 Pod UID 二次校验，防止同名重建对象混淆；
+- 新增内存接近 limit、CPU Spike、request 饱和、接近 limit 和 throttling Findings；
+- OOM 可信调查补充退出前内存证据；
+- 新增无 Agent 的 CPU Spike 确定性调查链路；
+- 新增真实 CPU 基线→忙循环→throttling 场景及 Prometheus/数据库测试。
+
 ## 0.8.1 - 可信 Tool Runtime 加固
 
 - 新增 `TrustedTool`、`ToolRegistry` 和通用 `ToolRuntime.execute()`；

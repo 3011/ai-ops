@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-cpu
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-cpu
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-cpu
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-cpu
+        app.kubernetes.io/name: aiops-scenario-cpu
+        aiops_test: "true"
+    spec:
+      containers:
+        - name: cpu-burner
+          image: python:3.12-alpine
+          command: ["python", "-c"]
+          args:
+            - |
+              import time
+              print('baseline idle phase for trusted CPU test', flush=True)
+              time.sleep(90)
+              print('starting deterministic CPU busy loop', flush=True)
+              value = 1
+              while True:
+                  value = (value * 1664525 + 1013904223) & 0xffffffff
+          resources:
+            requests: {cpu: 25m, memory: 8Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-scenario-cpu
+  namespace: aiops-dev
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: aiops-scenario-cpu
+      interval: 15s
+      rules:
+        - alert: AIOpsCPUSpikeScenario
+          expr: |
+            (
+              sum by (namespace, pod, container) (
+                rate(container_cpu_usage_seconds_total{
+                  namespace="aiops-dev",
+                  pod=~"aiops-scenario-cpu-.*",
+                  container="cpu-burner"
+                }[1m])
+              )
+              * on (namespace, pod) group_left(uid)
+              max by (namespace, pod, uid) (
+                kube_pod_info{
+                  namespace="aiops-dev",
+                  pod=~"aiops-scenario-cpu-.*"
+                }
+              )
+            ) > 0.12
+          for: 30s
+          labels:
+            severity: warning
+            namespace: aiops-dev
+            service: aiops-scenario-cpu
+            environment: development
+            aiops_enabled: "true"
+            aiops_test: "true"
+          annotations:
+            summary: "AIOps 可信 CPU Spike 场景测试"
+            description: "容器先建立低 CPU 基线，再进入受 CPU limit 约束的忙循环，用于验证 CPU/request、CPU/limit 和 throttling。"

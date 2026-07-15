@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.8.1`
+- 当前 API：`0.9.0-dev.1`
 
 ## 核心链路
 
@@ -127,6 +127,36 @@ deadline=调查开始后 2 分钟
 ```
 
 Agent、第二个诊断工具、Snapshot Replay 和 Result Validator 仍未启用。
+
+## 可信 Prometheus 工具与 CPU 确定性调查（0.9.0-dev.1）
+
+当前内部 Gate 1/2 新增三个注册工具：
+
+```text
+get_memory_usage_vs_limit
+get_cpu_usage_vs_request_limit
+get_cpu_throttling
+```
+
+约束：
+
+- 工具参数不接受自由 PromQL；查询由代码生成并固定 namespace、Pod、Container；
+- cAdvisor 序列必须通过 Pod UID 二次校验；
+- Prometheus 403、429、5xx、超时、无数据和部分响应使用不同失败语义；
+- 查询范围、步长、最大序列数和最大数据点由客户端强制限制；
+- 内存未观察到达到 limit 不能反证 OOMKilled；
+- CPU Spike 必须同时满足历史基线倍数、绝对增量和持续样本条件；
+- throttling 可以确认发生过限流，但不能单独确认 CPU limit 是事故根因；
+- 无 Profile 数据时不能声明具体函数、线程或代码路径导致 CPU 升高。
+
+无 Agent 链路：
+
+```text
+OOM：ContainerStatus → Memory usage vs limit → Deterministic Findings
+CPU：CPU usage vs request/limit → CPU throttling → Deterministic Findings
+```
+
+Agent、RED 指标、日志工具、发布工具、Replay 和 Validator 尚未进入本开发闸门。
 
 ## “无需告警模板”的边界
 

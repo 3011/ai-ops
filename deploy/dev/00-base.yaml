@@ -38,9 +38,9 @@ data:
   INVESTIGATION_RAW_JSON_MAX_BYTES: "65536"
   INVESTIGATION_COLLECTION_MAX_ITEMS: "200"
   INVESTIGATION_STRING_MAX_CHARS: "4000"
-  APP_VERSION: "0.8.1"
-  APP_RELEASE_TITLE: "可信 Tool Runtime 加固"
-  APP_RELEASE_SUMMARY: "将单工具调查重构为通用注册、预算、缓存、失败语义和 Artifact 管线。"
-  APP_RELEASE_CHANGES: '["ToolRegistry 与通用 ToolRuntime.execute","InvestigationBudget 与 BudgetLedger","同 Run、同 Target、同参数缓存复用","Kubernetes 404/403/429/5xx/超时精确语义","Resolver 分页、直接 GET 与 controller owner","Finding 自动回填 ToolResult","Artifact 脱敏、截断、压缩和完整 Hash"]'
+  APP_VERSION: "0.9.0-dev.1"
+  APP_RELEASE_TITLE: "可信 Prometheus 工具与 CPU 确定性闭环"
+  APP_RELEASE_SUMMARY: "新增受 TargetContext 约束的内存、CPU 和 throttling 工具，并建立无 Agent 的 CPU Spike 确定性调查。"
+  APP_RELEASE_CHANGES: '["PrometheusReadClient 统一错误与范围限制","get_memory_usage_vs_limit","get_cpu_usage_vs_request_limit","get_cpu_throttling","内存与 CPU 确定性 Finding","CPU Spike 无 Agent 调查链路","真实 OOM 与 CPU 压测场景"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

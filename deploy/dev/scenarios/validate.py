@@ -100,14 +100,39 @@ if oom_row:
         and bool(oom_finding)
         and oom_finding.get("tool_execution_id") in tool_ids
         and oom_finding.get("confirmation_rule") == "container_oom_killed_v1"
-        and (trusted or {}).get("budget_usage", {}).get("tool_calls_used") == 1
-        and (trusted or {}).get("budget_usage", {}).get("total_cost_units_used") == 1
+        and (trusted or {}).get("budget_usage", {}).get("tool_calls_used") == 2
+        and (trusted or {}).get("budget_usage", {}).get("total_cost_units_used") == 4
         and oom_finding.get("id") in ((tools[0].get("result_summary") or {}).get("finding_ids") or [])
-        and bool(tools[0].get("raw_artifact_hash")),
+        and {item.get("tool_name") for item in tools} == {"get_container_termination_status", "get_memory_usage_vs_limit"}
+        and any((item.get("structured_output") or {}).get("peak_limit_ratio") is not None for item in tools)
+        and all(bool(item.get("raw_artifact_hash")) for item in tools),
         f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
 else:
     checks.append((False, "missing scenario: trusted OOMKilled"))
+
+
+cpu_row = find("CPU Spike")
+if cpu_row:
+    detail = get(f"/incidents/{cpu_row['id']}")
+    trusted = next((item for item in (detail.get("trusted_investigations") or []) if item.get("engine") == "deterministic_cpu_v1"), None)
+    findings = (trusted or {}).get("findings") or []
+    tools = (trusted or {}).get("tool_executions") or []
+    types = {item.get("finding_type") for item in findings}
+    tool_names = {item.get("tool_name") for item in tools}
+    checks.append((
+        bool(trusted)
+        and trusted.get("status") == "COMPLETED_PARTIAL"
+        and (trusted.get("target_context") or {}).get("resolution_quality") == "high"
+        and "container_cpu_spike" in types
+        and "cpu_request_saturated" in types
+        and {"get_cpu_usage_vs_request_limit", "get_cpu_throttling"}.issubset(tool_names)
+        and trusted.get("budget_usage", {}).get("tool_calls_used") == 2
+        and all(bool(item.get("raw_artifact_hash")) for item in tools),
+        f"trusted CPU: run={(trusted or {}).get('status')} findings={sorted(types)} tools={sorted(tool_names)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
+    ))
+else:
+    checks.append((False, "missing scenario: trusted CPU Spike"))
 
 
 http_row = find("HTTP 5xx")
