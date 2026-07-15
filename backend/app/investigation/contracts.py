@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -51,6 +51,63 @@ class TargetContext(TargetRef):
     def ref(self) -> TargetRef:
         return TargetRef(**self.model_dump(include=set(TargetRef.model_fields)))
 
+    def identity_payload(self) -> dict[str, Any]:
+        """Stable identity included in every cache key."""
+        return {
+            "cluster_id": self.cluster_id,
+            "namespace": self.namespace,
+            "pod_name": self.pod_name,
+            "pod_uid": self.pod_uid,
+            "container_name": self.container_name,
+            "workload_uid": self.workload_uid,
+            "resolution_method": self.resolution_method,
+            "resolution_quality": self.resolution_quality.value,
+            "allowed_namespaces": sorted(self.allowed_namespaces),
+            "window_start": self.window_start.isoformat(),
+            "window_end": self.window_end.isoformat(),
+        }
+
+
+class InvestigationBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_steps: int = Field(default=8, ge=1, le=100)
+    max_tool_calls: int = Field(default=12, ge=1, le=200)
+    max_total_cost_units: int = Field(default=20, ge=1, le=10_000)
+    max_same_tool_calls: int = Field(default=3, ge=1, le=50)
+    max_no_progress_rounds: int = Field(default=2, ge=1, le=20)
+    deadline_at: datetime = Field(default_factory=lambda: datetime.now(UTC) + timedelta(minutes=2))
+
+
+class BudgetSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    steps_used: int = 0
+    tool_calls_used: int = 0
+    total_cost_units_used: int = 0
+    tool_call_counts: dict[str, int] = Field(default_factory=dict)
+    no_progress_rounds: int = 0
+    last_finding_step: int | None = None
+    remaining_steps: int
+    remaining_tool_calls: int
+    remaining_cost_units: int
+    deadline_at: datetime
+
+
+class ToolObservation(BaseModel):
+    """Tool-owned result before persistence, artifact handling and findings."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    status: ToolStatus
+    data: dict[str, Any] = Field(default_factory=dict)
+    raw_output: dict[str, Any] | list[Any] | None = None
+    completeness: Completeness
+    summary: str
+    error_code: str | None = None
+    error_message: str | None = None
+    retryable: bool = False
+
 
 class ToolResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -70,6 +127,9 @@ class ToolResult(BaseModel):
     error_code: str | None = None
     retryable: bool = False
     reused_execution_id: str | None = None
+    is_truncated: bool = False
+    raw_artifact_uri: str | None = None
+    raw_artifact_hash: str | None = None
 
 
 class DeterministicFinding(BaseModel):
@@ -85,6 +145,15 @@ class DeterministicFinding(BaseModel):
     tool_execution_id: str
     parser_version: str
     confirmation_rule: str | None = None
+
+
+class ArtifactRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    uri: str
+    sha256: str
+    size_bytes: int
+    content_type: str = "application/json"
 
 
 class DiagnosisResultContract(BaseModel):

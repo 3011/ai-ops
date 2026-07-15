@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.1 - 可信 Tool Runtime 加固
+
+- 新增 `TrustedTool`、`ToolRegistry` 和通用 `ToolRuntime.execute()`；
+- 新增 `InvestigationBudget` 与 `BudgetLedger`，在数据源访问前执行步骤、调用、成本、同工具、无进展和截止时间限制；
+- 实现同一 AnalysisRun 内基于工具版本、规范化参数和 TargetContext 身份的缓存复用；
+- 缓存命中不重复访问数据源、不重复创建 Finding，记录 `reused_execution_id`，成本为 0；
+- Kubernetes 404、403、429、超时、5xx 和响应格式错误使用不同 ToolStatus、error_code 与 retryable 语义；
+- Target Resolver 改为 Pod 名直接 GET、UID 分页查找和受控 labelSelector，支持 500 条以上 Pod；
+- ownerReferences 优先选择 `controller=true`，Workload 元数据失败不破坏 Pod UID 的 high 定位质量；
+- Finding Parser 纳入 Runtime，Finding ID 自动写回 ToolResult 和模型可见摘要；
+- 新增 ArtifactStorage 接口和 PostgreSQL 压缩实现，支持敏感字段脱敏、大小限制、裁剪和完整对象 Hash；
+- 事件详情增加预算账本、缓存命中、Artifact、截断和权限拒绝展示；
+- 新增预算、缓存隔离、错误审计、分页、Artifact 和 Finding 契约集成测试。
+
 ## 0.8.0 - OOMKilled 可信调查闭环
 
 - 新增框架无关的 TargetContext、ToolResult、DeterministicFinding 契约和枚举；

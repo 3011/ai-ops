@@ -4,7 +4,7 @@
 
 - Web：`http://172.30.10.11:30300`
 - API 文档：`http://172.30.10.11:30801/docs`
-- 当前 API：`0.8.0`
+- 当前 API：`0.8.1`
 
 ## 核心链路
 
@@ -65,6 +65,68 @@ Incident → TargetContext Resolver → get_container_termination_status
 - 事件详情新增“可信调查”页，显示目标 UID、定位路径、确定性事实、工具审计和降级状态。
 
 现有 DeepSeek 分析仍并行保留，但不参与上述 OOMKilled 硬事实确认。
+
+## 可信 Tool Runtime（0.8.1）
+
+0.8.1 不增加第二个诊断工具，而是把 0.8.0 的单工具硬编码改造成通用可信执行管线：
+
+```text
+ToolRegistry
+→ Tool Schema Validation
+→ TargetContext Binding
+→ Budget Reservation
+→ Same-Run Cache Lookup
+→ TrustedTool.execute
+→ Artifact Redaction / Hash / Truncation
+→ ToolExecution Persistence
+→ Finding Parser
+→ DeterministicFinding Persistence
+→ ToolResult finding_ids 回填
+```
+
+当前正式注册工具仍只有：
+
+```text
+get_container_termination_status@1.0.0
+```
+
+运行时保证：
+
+- 工具实现不操作 `investigation_tool_executions`、Finding 或 Artifact 数据库表；
+- 未注册工具和参数错误返回 `INVALID_REQUEST`，并产生审计记录；
+- namespace 越权返回 `DENIED`；
+- 预算在访问 Kubernetes 之前预留，缓存命中成本为 0；
+- 缓存键包含 Run、工具版本、规范化参数、Pod UID、Container、时间窗口、定位质量和允许作用域；
+- 同一调用命中缓存时不访问数据源、不重复创建 Finding，并记录 `reused_execution_id`；
+- 404 为 `NOT_FOUND`，401/403 为 `DENIED`，429/超时/5xx 为可重试 `UNAVAILABLE`；
+- Resolver 有 Pod 名时直接 GET，仅 UID 时分页扫描，service/app 时优先受控 labelSelector；
+- `ownerReferences` 优先使用 `controller=true`，Workload 元数据失败不会降低已经确认的 Pod UID 质量；
+- 原始与结构化结果先脱敏，超过阈值后裁剪 JSONB，并将完整内容压缩保存到 `investigation_artifacts`；
+- `model_visible_output_json.finding_ids` 与数据库 Finding 保持一致。
+
+默认 Artifact 策略：
+
+```text
+Inline JSON 上限：65536 bytes
+集合元素上限：200
+单字符串上限：4000 characters
+完整 Artifact：PostgreSQL BYTEA + zlib
+Artifact URI：db://investigation_artifacts/<id>
+Hash：完整脱敏对象的 SHA-256
+```
+
+预算默认值：
+
+```text
+max_steps=8
+max_tool_calls=12
+max_total_cost_units=20
+max_same_tool_calls=3
+max_no_progress_rounds=2
+deadline=调查开始后 2 分钟
+```
+
+Agent、第二个诊断工具、Snapshot Replay 和 Result Validator 仍未启用。
 
 ## “无需告警模板”的边界
 

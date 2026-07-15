@@ -58,3 +58,11 @@ def extract_oom_killed_finding(
         parser_version=PARSER_VERSION,
         confirmation_rule=CONFIRMATION_RULE,
     )
+
+
+def parse_oom_killed_findings(
+    result: ToolResult,
+    target: TargetContext,
+) -> list[DeterministicFinding]:
+    finding = extract_oom_killed_finding(result, target)
+    return [finding] if finding is not None else []

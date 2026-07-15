@@ -524,8 +524,16 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
       <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="调查状态" value={run.status} valueStyle={{ fontSize: 16 }} /></Card></Col>
       <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="定位质量" value={(quality || 'unknown').toUpperCase()} valueStyle={{ fontSize: 20 }} /></Card></Col>
       <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="确定性事实" value={findings.length} /></Card></Col>
-      <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="工具执行" value={tools.length} /></Card></Col>
+      <Col xs={12} md={6}><Card className="mini-stat"><Statistic title="成本单位" value={run.budget_usage?.total_cost_units_used || 0} suffix={`/ ${run.budget?.max_total_cost_units || '-'}`} /></Card></Col>
     </Row>
+    <Card title="调查预算与运行账本">
+      <Descriptions bordered size="small" column={{ xs: 2, md: 4 }}>
+        <Descriptions.Item label="步骤">{run.budget_usage?.steps_used || 0} / {run.budget?.max_steps || '-'}</Descriptions.Item>
+        <Descriptions.Item label="工具调用">{run.budget_usage?.tool_calls_used || 0} / {run.budget?.max_tool_calls || '-'}</Descriptions.Item>
+        <Descriptions.Item label="同工具上限">{run.budget?.max_same_tool_calls || '-'}</Descriptions.Item>
+        <Descriptions.Item label="无进展轮次">{run.budget_usage?.no_progress_rounds || 0} / {run.budget?.max_no_progress_rounds || '-'}</Descriptions.Item>
+      </Descriptions>
+    </Card>
     <Card title="目标资源及 UID" extra={<Space><Tag color={statusColor}>{run.status}</Tag><Tag>{run.engine}@{run.engine_version}</Tag></Space>}>
       {target.pod_uid ? <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
         <Descriptions.Item label="Cluster">{target.cluster_id || '-'}</Descriptions.Item>
@@ -565,14 +573,16 @@ function TrustedInvestigationPanel({ runs }: { runs: any[] }) {
       <Table rowKey="id" size="small" pagination={false} dataSource={tools} columns={[
         { title: '顺序', dataIndex: 'sequence_number', width: 70 },
         { title: '工具', render: (_: unknown, row: any) => <Space direction="vertical" size={1}><strong>{row.tool_name}</strong><Typography.Text type="secondary">v{row.tool_version}</Typography.Text></Space> },
-        { title: '状态', dataIndex: 'status', width: 150, render: (value) => <Tag color={value === 'FOUND' ? 'green' : value === 'UNAVAILABLE' || value === 'TARGET_UNCERTAIN' ? 'orange' : 'default'}>{value}</Tag> },
-        { title: '结果摘要', render: (_: unknown, row: any) => row.result_summary?.summary || '-' },
+        { title: '状态', dataIndex: 'status', width: 160, render: (value) => <Tag color={value === 'FOUND' ? 'green' : value === 'DENIED' || value === 'INVALID_REQUEST' ? 'red' : value === 'UNAVAILABLE' || value === 'TARGET_UNCERTAIN' || value === 'BUDGET_EXCEEDED' ? 'orange' : value === 'PARTIAL' ? 'gold' : 'default'}>{value}</Tag> },
+        { title: '结果摘要', render: (_: unknown, row: any) => <Space direction="vertical" size={2}><span>{row.result_summary?.summary || '-'}</span><Space wrap>{row.reused_execution_id && <Tag color="blue">缓存复用 #{row.reused_execution_id}</Tag>}{row.is_truncated && <Tag color="gold">已截断</Tag>}{(row.result_summary?.finding_ids || []).length > 0 && <Tag color="green">{row.result_summary.finding_ids.length} Finding</Tag>}</Space></Space> },
         { title: '目标 UID', render: (_: unknown, row: any) => <Typography.Text code>{row.input?.target?.pod_uid || '-'}</Typography.Text> },
-        { title: 'Raw Hash', dataIndex: 'raw_artifact_hash', ellipsis: true, render: (value) => value ? <Typography.Text code copyable>{value}</Typography.Text> : '-' },
+        { title: 'Artifact', width: 190, render: (_: unknown, row: any) => <Space direction="vertical" size={1}>{row.raw_artifact_uri ? <Typography.Text code copyable>{row.raw_artifact_uri}</Typography.Text> : <Typography.Text type="secondary">Inline JSONB</Typography.Text>}{row.raw_artifact_hash && <Typography.Text type="secondary" ellipsis={{ tooltip: row.raw_artifact_hash }} style={{ maxWidth: 170 }}>{row.raw_artifact_hash}</Typography.Text>}</Space> },
+        { title: '成本', dataIndex: 'cost_units', width: 75 },
         { title: '耗时', width: 110, render: (_: unknown, row: any) => `${Math.max(0, dayjs(row.completed_at).diff(dayjs(row.started_at)))} ms` },
-        { title: '错误', width: 180, render: (_: unknown, row: any) => row.error_code || '-' },
+        { title: '错误', width: 200, render: (_: unknown, row: any) => row.error_code ? <Tag color={row.status === 'DENIED' ? 'red' : 'orange'}>{row.error_code}</Tag> : '-' },
       ]} />
     </Card>
+    {tools.some((item: any) => item.status === 'DENIED') && <Alert type="error" showIcon message="工具访问被权限策略拒绝" description="该结果不是“未发现异常”。请检查 Worker RBAC 或目标作用域配置。" />}
     {(run.degradation_reasons || []).length > 0 && <Alert
       type="info"
       showIcon

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -253,6 +253,8 @@ class InvestigationAnalysisRun(Base):
     engine: Mapped[str] = mapped_column(String(64), nullable=False, default="deterministic_oom_v1")
     engine_version: Mapped[str] = mapped_column(String(64), nullable=False, default="1")
     input_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
+    budget_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    budget_usage_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -263,6 +265,10 @@ class InvestigationToolExecution(Base):
     __table_args__ = (
         UniqueConstraint("analysis_run_id", "sequence_number", name="uq_investigation_tool_sequence"),
         Index("ix_investigation_tool_run", "analysis_run_id", "created_at"),
+        Index(
+            "ix_investigation_tool_cache_lookup",
+            "analysis_run_id", "tool_name", "tool_version", "normalized_input_hash",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -304,6 +310,18 @@ class InvestigationFinding(Base):
     event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parser_version: Mapped[str] = mapped_column(String(64), nullable=False)
     confirmation_rule: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestigationArtifact(Base):
+    __tablename__ = "investigation_artifacts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False, default="application/json")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    compression: Mapped[str] = mapped_column(String(32), nullable=False, default="zlib")
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

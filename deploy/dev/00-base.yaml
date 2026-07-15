@@ -35,9 +35,12 @@ data:
   DYNAMIC_PLANNER_MAX_LOKI_QUERIES: "2"
   CHANGE_LOOKBACK_MINUTES: "120"
   TRACE_QUERY_LIMIT: "20"
-  APP_VERSION: "0.8.0"
-  APP_RELEASE_TITLE: "OOMKilled 可信调查闭环"
-  APP_RELEASE_SUMMARY: "新增不依赖模型的 OOMKilled 确定性调查、工具审计、UID 固定和规则化诊断。"
-  APP_RELEASE_CHANGES: '["TargetContext 固定 Pod UID 与 Container","get_container_termination_status 只读工具","ToolExecution 与原始结果 Hash 审计","container_oom_killed_v1 确定性 Finding","模型关闭时仍生成 COMPLETED_PARTIAL 诊断","事件详情可信调查页面"]'
+  INVESTIGATION_RAW_JSON_MAX_BYTES: "65536"
+  INVESTIGATION_COLLECTION_MAX_ITEMS: "200"
+  INVESTIGATION_STRING_MAX_CHARS: "4000"
+  APP_VERSION: "0.8.1"
+  APP_RELEASE_TITLE: "可信 Tool Runtime 加固"
+  APP_RELEASE_SUMMARY: "将单工具调查重构为通用注册、预算、缓存、失败语义和 Artifact 管线。"
+  APP_RELEASE_CHANGES: '["ToolRegistry 与通用 ToolRuntime.execute","InvestigationBudget 与 BudgetLedger","同 Run、同 Target、同参数缓存复用","Kubernetes 404/403/429/5xx/超时精确语义","Resolver 分页、直接 GET 与 controller owner","Finding 自动回填 ToolResult","Artifact 脱敏、截断、压缩和完整 Hash"]'
   SESSION_HOURS: "8"
   COOKIE_SECURE: "false"

@@ -5,6 +5,7 @@ import unittest
 
 from app.investigation.contracts import TargetContext, ToolResult
 from app.investigation.enums import Completeness, ResolutionQuality, ToolStatus
+from app.investigation.kubernetes import KubernetesReadError
 from app.investigation.findings.oom import extract_oom_killed_finding
 from app.investigation.resolver import select_pod_candidate
 from app.investigation.tools.container_status import get_container_termination_status
@@ -85,6 +86,34 @@ class TrustedOomTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observation.status, ToolStatus.UNAVAILABLE)
         self.assertNotEqual(observation.status, ToolStatus.NOT_FOUND)
         self.assertTrue(observation.retryable)
+
+
+    async def test_404_is_not_found_and_not_retryable(self):
+        observation = await get_container_termination_status(
+            target(),
+            client=FakeClient(error=KubernetesReadError(ToolStatus.NOT_FOUND, "KUBERNETES_NOT_FOUND", "gone", False, 404)),
+        )
+        self.assertEqual(observation.status, ToolStatus.NOT_FOUND)
+        self.assertFalse(observation.retryable)
+
+    async def test_403_is_denied(self):
+        observation = await get_container_termination_status(
+            target(),
+            client=FakeClient(error=KubernetesReadError(ToolStatus.DENIED, "KUBERNETES_ACCESS_DENIED", "forbidden", False, 403)),
+        )
+        self.assertEqual(observation.status, ToolStatus.DENIED)
+        self.assertEqual(observation.error_code, "KUBERNETES_ACCESS_DENIED")
+        self.assertFalse(observation.retryable)
+
+    async def test_429_and_500_are_retryable_unavailable(self):
+        for code, error_code in ((429, "RATE_LIMITED"), (500, "KUBERNETES_SERVER_ERROR")):
+            observation = await get_container_termination_status(
+                target(),
+                client=FakeClient(error=KubernetesReadError(ToolStatus.UNAVAILABLE, error_code, "retry", True, code)),
+            )
+            self.assertEqual(observation.status, ToolStatus.UNAVAILABLE)
+            self.assertTrue(observation.retryable)
+            self.assertEqual(observation.error_code, error_code)
 
     def test_high_quality_oom_generates_finding(self):
         ctx = target()

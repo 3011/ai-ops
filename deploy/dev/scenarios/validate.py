@@ -99,8 +99,12 @@ if oom_row:
         and any(item.get("status") == "FOUND" for item in tools)
         and bool(oom_finding)
         and oom_finding.get("tool_execution_id") in tool_ids
-        and oom_finding.get("confirmation_rule") == "container_oom_killed_v1",
-        f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)}",
+        and oom_finding.get("confirmation_rule") == "container_oom_killed_v1"
+        and (trusted or {}).get("budget_usage", {}).get("tool_calls_used") == 1
+        and (trusted or {}).get("budget_usage", {}).get("total_cost_units_used") == 1
+        and oom_finding.get("id") in ((tools[0].get("result_summary") or {}).get("finding_ids") or [])
+        and bool(tools[0].get("raw_artifact_hash")),
+        f"trusted OOM: run={(trusted or {}).get('status')} quality={target.get('resolution_quality')} uid={bool(target.get('pod_uid'))} tools={len(tools)} findings={len(findings)} cost={(trusted or {}).get('budget_usage', {}).get('total_cost_units_used')}",
     ))
 else:
     checks.append((False, "missing scenario: trusted OOMKilled"))

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+import re
 from typing import Any
 
 from app.investigation.contracts import TargetContext
 from app.investigation.enums import ResolutionQuality, ToolStatus
-from app.investigation.kubernetes import KubernetesReadClient
+from app.investigation.kubernetes import KubernetesReadClient, KubernetesReadError
 from app.models import AlertInstance, Incident
+
+_LABEL_VALUE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$")
+_SERVICE_LABEL_KEYS = ("app.kubernetes.io/name", "app", "k8s-app", "service", "component", "job")
 
 
 @dataclass(slots=True)
@@ -20,12 +24,14 @@ class ResolutionOutcome:
 
 def _labels_match_service(pod: dict[str, Any], service: str) -> bool:
     labels = (pod.get("metadata") or {}).get("labels") or {}
-    values = {
-        str(labels.get(key) or "")
-        for key in ("app.kubernetes.io/name", "app", "k8s-app", "service", "component", "job")
-    }
+    values = {str(labels.get(key) or "") for key in _SERVICE_LABEL_KEYS}
     name = str((pod.get("metadata") or {}).get("name") or "")
     return service in values or (service and service in name)
+
+
+def _controller_owner(metadata: dict[str, Any]) -> dict[str, Any] | None:
+    owners = list(metadata.get("ownerReferences") or [])
+    return next((owner for owner in owners if owner.get("controller") is True), owners[0] if owners else None)
 
 
 def select_pod_candidate(
@@ -35,7 +41,7 @@ def select_pod_candidate(
     pod_uid: str,
     service: str,
 ) -> tuple[dict[str, Any] | None, ResolutionQuality, str, str]:
-    """Select one pod without ever treating ambiguity as a confirmed target."""
+    """Pure selection helper retained for contract tests."""
     if pod_uid:
         uid_matches = [pod for pod in pods if str((pod.get("metadata") or {}).get("uid") or "") == pod_uid]
         if len(uid_matches) == 1:
@@ -45,13 +51,11 @@ def select_pod_candidate(
                 return None, ResolutionQuality.LOW, "alert_pod_uid", "Pod UID 与告警 Pod 名不一致"
             return candidate, ResolutionQuality.HIGH, "alert_pod_uid", "通过告警 Pod UID 唯一定位"
         return None, ResolutionQuality.LOW, "alert_pod_uid", "告警 Pod UID 未唯一匹配当前对象"
-
     if pod_name:
         name_matches = [pod for pod in pods if str((pod.get("metadata") or {}).get("name") or "") == pod_name]
         if len(name_matches) == 1:
             return name_matches[0], ResolutionQuality.HIGH, "alert_pod_name", "通过告警 Pod 名定位并固定当前 UID"
         return None, ResolutionQuality.LOW, "alert_pod_name", "告警 Pod 名未唯一匹配"
-
     service_matches = [pod for pod in pods if _labels_match_service(pod, service)] if service else []
     if len(service_matches) == 1:
         return service_matches[0], ResolutionQuality.MEDIUM, "service_selector", "通过服务标签唯一定位 Pod"
@@ -64,6 +68,70 @@ def _container_names(pod: dict[str, Any]) -> list[str]:
     status_names = [str(item.get("name")) for item in ((pod.get("status") or {}).get("containerStatuses") or []) if item.get("name")]
     spec_names = [str(item.get("name")) for item in ((pod.get("spec") or {}).get("containers") or []) if item.get("name")]
     return list(dict.fromkeys(status_names + spec_names))
+
+
+def _resolution_error(exc: KubernetesReadError, *, namespace: str, operation: str) -> ResolutionOutcome:
+    return ResolutionOutcome(
+        exc.status,
+        None,
+        f"{operation}失败：{exc.message}",
+        {
+            "namespace": namespace,
+            "error_code": exc.error_code,
+            "http_status": exc.http_status,
+            "retryable": exc.retryable,
+        },
+    )
+
+
+async def _resolve_pod(
+    reader: KubernetesReadClient,
+    *,
+    namespace: str,
+    pod_name: str,
+    pod_uid: str,
+    service: str,
+) -> tuple[dict[str, Any] | None, ResolutionQuality, str, str, dict[str, Any]]:
+    details: dict[str, Any] = {}
+    if pod_name:
+        try:
+            pod = await reader.get_pod(namespace, pod_name)
+        except KubernetesReadError as exc:
+            details.update(error_code=exc.error_code, http_status=exc.http_status, retryable=exc.retryable)
+            if exc.status == ToolStatus.NOT_FOUND:
+                return None, ResolutionQuality.LOW, "alert_pod_name", "告警指定的 Pod 已不存在", details
+            raise
+        actual_uid = str((pod.get("metadata") or {}).get("uid") or "")
+        if pod_uid and actual_uid != pod_uid:
+            details.update(expected_uid=pod_uid, actual_uid=actual_uid)
+            return None, ResolutionQuality.LOW, "alert_pod_uid", "同名 Pod 的 UID 与告警 UID 不一致", details
+        method = "alert_pod_uid" if pod_uid else "alert_pod_name"
+        message = "通过 Pod 名直接读取并校验 UID" if pod_uid else "通过告警 Pod 名直接定位并固定当前 UID"
+        return pod, ResolutionQuality.HIGH, method, message, details
+
+    if pod_uid:
+        pods = await reader.list_pods(namespace)
+        pod, quality, method, message = select_pod_candidate(pods, pod_name="", pod_uid=pod_uid, service="")
+        details["scanned_pods"] = len(pods)
+        return pod, quality, method, message, details
+
+    if service and _LABEL_VALUE.fullmatch(service):
+        selected: dict[str, dict[str, Any]] = {}
+        for key in _SERVICE_LABEL_KEYS:
+            for pod in await reader.list_pods(namespace, label_selector=f"{key}={service}"):
+                uid = str((pod.get("metadata") or {}).get("uid") or "")
+                if uid:
+                    selected[uid] = pod
+        details["selector_matches"] = len(selected)
+        if len(selected) == 1:
+            return next(iter(selected.values())), ResolutionQuality.MEDIUM, "service_label_selector", "通过受控 Kubernetes labelSelector 唯一定位 Pod", details
+        if len(selected) > 1:
+            return None, ResolutionQuality.LOW, "service_label_selector", f"服务 labelSelector 匹配到 {len(selected)} 个 Pod，目标不唯一", details
+
+    pods = await reader.list_pods(namespace)
+    details["scanned_pods"] = len(pods)
+    pod, quality, method, message = select_pod_candidate(pods, pod_name="", pod_uid="", service=service)
+    return pod, quality, "service_fallback_scan" if method == "service_selector" else method, message, details
 
 
 async def resolve_target_context(
@@ -85,27 +153,27 @@ async def resolve_target_context(
 
     reader = client or KubernetesReadClient()
     try:
-        pods = await reader.list_pods(namespace)
-    except Exception as exc:
-        return ResolutionOutcome(
-            ToolStatus.UNAVAILABLE,
-            None,
-            f"Kubernetes Pod 列表不可用：{type(exc).__name__}",
-            {"namespace": namespace, "error": str(exc)[:500]},
+        pod, quality, method, message, resolution_details = await _resolve_pod(
+            reader,
+            namespace=namespace,
+            pod_name=explicit_pod,
+            pod_uid=explicit_uid,
+            service=service,
         )
+    except KubernetesReadError as exc:
+        return _resolution_error(exc, namespace=namespace, operation="Pod 定位")
 
-    pod, quality, method, message = select_pod_candidate(
-        pods,
-        pod_name=explicit_pod,
-        pod_uid=explicit_uid,
-        service=service,
-    )
     if pod is None:
+        unresolved_status = (
+            ToolStatus.NOT_FOUND
+            if resolution_details.get("error_code") == "KUBERNETES_NOT_FOUND"
+            else ToolStatus.TARGET_UNCERTAIN
+        )
         return ResolutionOutcome(
-            ToolStatus.TARGET_UNCERTAIN,
+            unresolved_status,
             None,
             message,
-            {"namespace": namespace, "pod": explicit_pod, "pod_uid": explicit_uid, "service": service},
+            {"namespace": namespace, "pod": explicit_pod, "pod_uid": explicit_uid, "service": service, **resolution_details},
         )
 
     metadata = pod.get("metadata") or {}
@@ -145,8 +213,8 @@ async def resolve_target_context(
     workload_kind: str | None = None
     workload_name: str | None = None
     workload_uid: str | None = None
-    owners = metadata.get("ownerReferences") or []
-    owner = owners[0] if owners else None
+    workload_errors: list[dict[str, Any]] = []
+    owner = _controller_owner(metadata)
     if owner:
         owner_kind = str(owner.get("kind") or "")
         owner_name = str(owner.get("name") or "")
@@ -156,17 +224,23 @@ async def resolve_target_context(
         if owner_kind == "ReplicaSet" and owner_name:
             try:
                 rs = await reader.get_replicaset(namespace, owner_name)
-                rs_owner = (((rs.get("metadata") or {}).get("ownerReferences") or [None])[0])
+                rs_owner = _controller_owner(rs.get("metadata") or {})
                 if rs_owner and str(rs_owner.get("kind") or "") == "Deployment":
                     deployment_name = str(rs_owner.get("name") or "")
                     deployment_uid = str(rs_owner.get("uid") or "")
                     if deployment_name:
-                        deployment = await reader.get_deployment(namespace, deployment_name)
-                        deployment_uid = str((deployment.get("metadata") or {}).get("uid") or deployment_uid)
-                    path.append(f"Deployment/{deployment_name} uid={deployment_uid or '-'}")
+                        try:
+                            deployment = await reader.get_deployment(namespace, deployment_name)
+                            deployment_uid = str((deployment.get("metadata") or {}).get("uid") or deployment_uid)
+                        except KubernetesReadError as exc:
+                            workload_errors.append({"object": f"Deployment/{deployment_name}", "error_code": exc.error_code})
+                            path.append(f"Deployment/{deployment_name} metadata unavailable ({exc.error_code})")
+                    if not any(entry.startswith(f"Deployment/{deployment_name}") for entry in path):
+                        path.append(f"Deployment/{deployment_name} uid={deployment_uid or '-'}")
                     workload_kind, workload_name, workload_uid = "Deployment", deployment_name, deployment_uid or None
-            except Exception:
-                path.append("Deployment owner lookup unavailable")
+            except KubernetesReadError as exc:
+                workload_errors.append({"object": f"ReplicaSet/{owner_name}", "error_code": exc.error_code})
+                path.append(f"ReplicaSet owner lookup unavailable ({exc.error_code})")
 
     context = TargetContext(
         cluster_id=str(labels.get("cluster") or "default"),
@@ -189,5 +263,10 @@ async def resolve_target_context(
         ToolStatus.FOUND,
         context,
         message,
-        {"pod_created_at": creation, "available_containers": names},
+        {
+            "pod_created_at": creation,
+            "available_containers": names,
+            "workload_lookup_errors": workload_errors,
+            **resolution_details,
+        },
     )

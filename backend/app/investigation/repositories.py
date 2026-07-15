@@ -55,6 +55,8 @@ async def investigation_payloads(
                 "engine": run.engine,
                 "engine_version": run.engine_version,
                 "input_snapshot_hash": run.input_snapshot_hash,
+                "budget": run.budget_json or {},
+                "budget_usage": run.budget_usage_json or {},
                 "started_at": run.started_at,
                 "completed_at": run.completed_at,
                 "created_at": run.created_at,
@@ -74,6 +76,8 @@ async def investigation_payloads(
                         "error_code": tool.error_code,
                         "error_message": tool.error_message,
                         "retryable": tool.retryable,
+                        "reused_execution_id": tool.reused_execution_id,
+                        "raw_artifact_uri": tool.raw_artifact_uri,
                         "started_at": tool.started_at,
                         "completed_at": tool.completed_at,
                     }
