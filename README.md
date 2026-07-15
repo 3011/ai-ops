@@ -14,7 +14,11 @@
 - 保存 PromQL、LogQL、查询时间窗、摘要、耗时和错误
 - OpenAI-compatible 结构化 LLM 分析；无 Key 时自动降级为确定性证据报告
 - 日志样本脱敏、Prompt Injection 隔离和高风险操作过滤
-- React + TypeScript + Ant Design 事件列表、详情、分析和证据展示
+- React + TypeScript + Ant Design 运维工作台
+- 运维总览、事件中心、原始告警、Webhook 投递、分析任务和模型设置
+- 事件状态/级别/命名空间/服务筛选
+- 数据源健康检查、24 小时事件趋势和高频服务统计
+- Prometheus 指标曲线、Loki 日志摘要、AI 根因假设和分析历史
 - 手工“重新分析”功能
 - `/healthz`、`/readyz`、`/metrics`
 
@@ -29,6 +33,16 @@ bash deploy/dev/deploy.sh
 
 - Web: `http://172.30.10.11:30300`
 - API docs: `http://172.30.10.11:30801/docs`
+
+
+## 控制台页面
+
+- `/dashboard`：运维总览、事件趋势、数据源健康和最近事件
+- `/incidents`：聚合事件中心和多条件筛选
+- `/alerts`：原始告警实例生命周期
+- `/deliveries`：Alertmanager Webhook 投递审计
+- `/jobs`：Outbox 分析任务和重试状态
+- `/settings/model`：模型 API 设置
 
 ## 测试告警生命周期
 
@@ -53,22 +67,21 @@ curl -sS -X POST \
 
 ## 配置 LLM
 
-默认 `LLM_API_KEY` 为空，Worker 只生成证据报告，不会伪造 AI 根因。
+打开前端菜单 `设置 → 模型设置`，可以维护：
 
-设置兼容 OpenAI Chat Completions 的 API Key：
+- OpenAI-compatible API Base URL
+- 模型名称
+- API Key
+- AI 分析启用状态
+- API 连通性测试
 
-```bash
-kubectl patch secret aiops-secrets -n aiops-dev --type merge \
-  -p '{"stringData":{"LLM_API_KEY":"替换为实际Key"}}'
+API Key 使用 Fernet 加密后保存到 PostgreSQL，页面不会回显明文。Worker 每次分析任务都会读取最新配置，无需修改 YAML 或重启。
 
-kubectl rollout restart deployment/aiops-worker -n aiops-dev
-```
-
-模型地址和模型名位于 `deploy/dev/00-base.yaml`：
+当前推荐配置：
 
 ```text
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
+Base URL: https://api.deepseek.com
+Model: deepseek-v4-flash
 ```
 
 ## 查看日志
@@ -111,3 +124,16 @@ kubectl delete -f deploy/dev/test-alert-rule.yaml
 ```text
 PrometheusRule → Prometheus → Alertmanager → AIOps API → PostgreSQL Outbox → Worker
 ```
+
+
+## 模型设置
+
+前端菜单进入 `设置 → 模型设置`，可维护：
+
+- OpenAI-compatible API Base URL
+- 模型名称
+- API Key
+- AI 分析启用状态
+- API 连通性测试
+
+API Key 使用 `SETTINGS_ENCRYPTION_KEY` 通过 Fernet 加密后存入 PostgreSQL，前端只显示是否已配置，不回显明文。Worker 每次分析时读取最新数据库配置，无需重启。
