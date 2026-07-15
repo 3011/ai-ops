@@ -19,6 +19,7 @@ from app.models import (
     InvestigationAnalysisRun,
     InvestigationArtifact,
     InvestigationDiagnosisResult,
+    InvestigationFinding,
     InvestigationModelInvocation,
     InvestigationReplaySnapshot,
     InvestigationToolExecution,
@@ -295,15 +296,28 @@ class AgentPersistenceTests(unittest.IsolatedAsyncioTestCase):
         async with SessionLocal() as session:
             parent = await session.get(InvestigationAnalysisRun, parent_id)
             child = await session.get(InvestigationAnalysisRun, child_id)
+            diagnosis = await session.get(InvestigationDiagnosisResult, child_id)
+            evaluation = await session.scalar(select(InvestigationAgentEvaluation).where(
+                InvestigationAgentEvaluation.analysis_run_id == child_id,
+                InvestigationAgentEvaluation.suite_version == EVAL_SUITE_VERSION,
+            ))
             invocation_count = await session.scalar(
                 select(func.count()).select_from(InvestigationModelInvocation).where(
                     InvestigationModelInvocation.analysis_run_id == child_id
                 )
             )
+            parent_finding_ids = set((await session.scalars(select(InvestigationFinding.id).where(
+                InvestigationFinding.analysis_run_id == parent_id
+            ))).all())
             self.assertEqual((parent.status, parent.stop_reason, dict(parent.target_context_json or {})), original)
             self.assertEqual(child.status, "FAILED")
             self.assertEqual(child.parent_run_id, parent_id)
             self.assertIn("AGENT_MODEL_UNAVAILABLE", child.degradation_reasons)
+            self.assertEqual(set(diagnosis.fact_refs_json), parent_finding_ids)
+            self.assertEqual(evaluation.status, "EFFECTIVENESS_WARNING")
+            self.assertTrue(evaluation.gates_json["oom_hard_fact_consistency_100"])
+            self.assertTrue(evaluation.gates_json["model_failure_does_not_change_parent"])
+            self.assertFalse(evaluation.metrics_json["model_available"])
             self.assertEqual(invocation_count, 0)
 
 

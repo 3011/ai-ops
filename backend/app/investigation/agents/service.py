@@ -208,7 +208,7 @@ async def execute_agent_run(
         model_error = f"{type(exc).__name__}: {exc}"[:2000]
         diagnosis = AgentDiagnosisOutput(
             summary="Agent 模型不可用或输出未通过结构化契约；确定性调查结果保持不变。",
-            fact_refs=[],
+            fact_refs=list(context.initial_finding_ids),
             hypotheses=[],
             missing_evidence=["Agent 模型调用失败，详见 ModelInvocation 审计。"],
             recommended_checks=["检查模型配置、调用状态和响应 Schema。"],
