@@ -1,0 +1,174 @@
+{
+  "snapshot_at": "2026-07-15T22:49:03+08:00",
+  "project": "Work's K8s / AIOps Console",
+  "repository": "git@github.com:3011/ai-ops.git",
+  "branches": {
+    "stable": {
+      "name": "main",
+      "commit": "3f5e96c14030c1bfa7b67cadc293f00e55acfb09",
+      "version": "0.8.1"
+    },
+    "development": {
+      "name": "release/0.9.0",
+      "version": "0.9.0-dev.4",
+      "deployed_application_commit": "8f785abb75d20e11c4273d4f3098a0acb152befc",
+      "branch_head_note": "The release branch may contain one newer docs-only handoff commit; use git rev-parse HEAD."
+    }
+  },
+  "paths": {
+    "development_repo": "/root/ai-ops",
+    "runtime_source": "k8s-cp01:/root/aiops-console",
+    "namespace": "aiops-dev"
+  },
+  "endpoints": {
+    "web": "http://172.30.10.11:30300",
+    "api": "http://172.30.10.11:30801",
+    "api_docs": "http://172.30.10.11:30801/docs"
+  },
+  "runtime": {
+    "components": [
+      "aiops-api",
+      "aiops-worker",
+      "aiops-web",
+      "postgresql-0"
+    ],
+    "model": {
+      "provider": "openai-compatible",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "enabled": true,
+      "api_key_included": false
+    },
+    "trace": {
+      "provider": "tempo",
+      "enabled": false,
+      "configured": false
+    },
+    "pending_jobs": 0,
+    "dead_jobs": 0,
+    "temporary_test_resources": 0
+  },
+  "database_state": {
+    "users": 2,
+    "roles": 4,
+    "permissions": 11,
+    "incidents": {
+      "resolved": 17
+    },
+    "change_events": 4,
+    "outbox_jobs": {
+      "succeeded": 39,
+      "skipped": 8
+    },
+    "trusted_runs": {
+      "COMPLETED_PARTIAL": 15
+    },
+    "replay_schema_1_1": {
+      "VALID": 12,
+      "VALID_WITH_WARNINGS": 2,
+      "INVALID": 1
+    }
+  },
+  "trusted_tools": [
+    {
+      "name": "get_container_termination_status",
+      "version": "1.0.0",
+      "cost_units": 1
+    },
+    {
+      "name": "get_memory_usage_vs_limit",
+      "version": "1.0.0",
+      "cost_units": 3
+    },
+    {
+      "name": "get_cpu_usage_vs_request_limit",
+      "version": "1.0.0",
+      "cost_units": 4
+    },
+    {
+      "name": "get_cpu_throttling",
+      "version": "1.0.0",
+      "cost_units": 3
+    },
+    {
+      "name": "get_container_restart_history",
+      "version": "1.0.0",
+      "cost_units": 2
+    },
+    {
+      "name": "get_recent_rollouts",
+      "version": "1.0.0",
+      "cost_units": 2
+    },
+    {
+      "name": "search_container_logs",
+      "version": "1.0.0",
+      "cost_units": 3
+    },
+    {
+      "name": "compare_cpu_across_replicas",
+      "version": "1.0.0",
+      "cost_units": 5
+    },
+    {
+      "name": "get_application_red_metrics",
+      "version": "1.0.0",
+      "cost_units": 4
+    }
+  ],
+  "replay_baseline": {
+    "run_1": {
+      "status": "INVALID",
+      "source_mode": "historical_reconstructed",
+      "legacy_contract_violation": true,
+      "error": "TOOL_FINDING_REF_MISMATCH",
+      "must_remain_invalid": true
+    },
+    "run_2": {
+      "status": "VALID",
+      "source_mode": "historical_reconstructed"
+    },
+    "run_4": {
+      "status": "VALID",
+      "source_mode": "historical_reconstructed"
+    },
+    "run_13": {
+      "status": "VALID_WITH_WARNINGS",
+      "source_mode": "historical_reconstructed",
+      "warning": "TARGET_UNRESOLVED"
+    },
+    "run_16": {
+      "status": "VALID_WITH_WARNINGS",
+      "source_mode": "native_frozen",
+      "warning": "TARGET_UNRESOLVED"
+    }
+  },
+  "next_release": {
+    "version": "0.9.0-dev.5",
+    "scope": [
+      "InvestigationAgent Protocol",
+      "Agent input and output contracts",
+      "investigation_model_invocations audit table",
+      "request and response Artifact audit"
+    ],
+    "explicitly_out_of_scope": [
+      "real-time Agent execution",
+      "PydanticAI tool loop in Worker",
+      "Agent Shadow Run",
+      "replacement of deterministic Diagnosis",
+      "free PromQL or LogQL",
+      "automatic remediation"
+    ]
+  },
+  "secrets_policy": {
+    "contains_secret_values": false,
+    "never_output": [
+      "DeepSeek API key",
+      "bootstrap admin password",
+      "release webhook token",
+      "session secret",
+      "settings encryption key",
+      "database password"
+    ]
+  }
+}

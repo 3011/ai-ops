@@ -6,6 +6,13 @@
 - API 文档：`http://172.30.10.11:30801/docs`
 - 当前 API：`0.9.0-dev.4`
 
+## Agent 交接
+
+后续 Agent 开始工作前必须先阅读：
+
+- `docs/AGENT_HANDOFF.md`：完整架构、运行状态、开发部署、风险和下一阶段范围；
+- `docs/AGENT_HANDOFF_STATE.json`：可机器读取的交接快照。
+
 ## 核心链路
 
 ```text
