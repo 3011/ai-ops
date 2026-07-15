@@ -79,6 +79,17 @@ function StatusTag({ value }: { value?: string | null }) {
   return <Tag color={colors[value || '']}>{value || '-'}</Tag>
 }
 
+function OriginTags({ item }: { item: any }) {
+  return (
+    <Space size={4} wrap>
+      {item?.is_test && <Tag color="gold">测试数据</Tag>}
+      <Tag color={item?.source === 'alertmanager' ? 'blue' : 'default'}>
+        {item?.source_label || (item?.source === 'alertmanager' ? 'Alertmanager 自动投递' : '手工 Webhook')}
+      </Tag>
+    </Space>
+  )
+}
+
 function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   return (
     <div className="page-header">
@@ -224,6 +235,7 @@ function DashboardPage() {
               onRow={(row: any) => ({ onClick: () => navigate(`/incidents/${row.id}`), style: { cursor: 'pointer' } })}
               columns={[
                 { title: '事件', dataIndex: 'title', ellipsis: true },
+                { title: '来源', width: 210, render: (_: unknown, row: any) => <OriginTags item={row} /> },
                 { title: '级别', dataIndex: 'severity', width: 90, render: (value) => <StatusTag value={value} /> },
                 { title: '状态', dataIndex: 'status', width: 90, render: (value) => <StatusTag value={value} /> },
                 { title: '最后发生', dataIndex: 'last_seen_at', width: 160, render: formatTime },
@@ -248,6 +260,19 @@ function IncidentsPage() {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <PageHeader title="事件中心" subtitle="查看聚合后的故障事件，并按状态、级别、集群和服务快速定位。" actions={<Button icon={<ReloadOutlined />} onClick={() => query.refetch()}>刷新</Button>} />
+      {(() => {
+        const items = query.data?.items || []
+        const testCount = items.filter((item: any) => item.is_test).length
+        const productionCount = items.length - testCount
+        return testCount > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={`当前查询结果包含 ${testCount} 条测试事件`}
+            description={productionCount > 0 ? `另有 ${productionCount} 条非测试事件；测试事件已单独标注。` : '当前数据库尚无真实生产事故；现有事件用于验证 webhook、Alertmanager、证据采集和 AI 分析链路。'}
+          />
+        ) : null
+      })()}
       <Card className="filter-card">
         <Row gutter={[12, 12]}>
           <Col xs={24} md={8}><Input allowClear prefix={<SearchOutlined />} placeholder="搜索事件标题或分组键" value={draft.q} onChange={(e) => setDraft({ ...draft, q: e.target.value })} onPressEnter={() => setFilters(draft)} /></Col>
@@ -271,6 +296,7 @@ function IncidentsPage() {
             { title: '事件', dataIndex: 'title', ellipsis: true },
             { title: '集群 / 命名空间', width: 190, render: (_: unknown, row: any) => `${row.labels?.cluster || '-'} / ${row.labels?.namespace || '-'}` },
             { title: '服务', width: 160, render: (_: unknown, row: any) => row.labels?.service || '-' },
+            { title: '来源', width: 220, render: (_: unknown, row: any) => <OriginTags item={row} /> },
             { title: '级别', dataIndex: 'severity', width: 95, render: (value) => <StatusTag value={value} /> },
             { title: '状态', dataIndex: 'status', width: 95, render: (value) => <StatusTag value={value} /> },
             { title: '告警数', dataIndex: 'alert_count', width: 85 },
@@ -365,7 +391,7 @@ function IncidentDetailPage() {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Link to="/incidents">← 返回事件中心</Link>
-      <PageHeader title={data.title} subtitle={`事件 #${data.id} · ${data.labels?.cluster || '-'} / ${data.labels?.namespace || '-'} / ${data.labels?.service || '-'}`} actions={<><StatusTag value={data.severity} /><StatusTag value={data.status} /><Button type="primary" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button></>} />
+      <PageHeader title={data.title} subtitle={`事件 #${data.id} · ${data.labels?.cluster || '-'} / ${data.labels?.namespace || '-'} / ${data.labels?.service || '-'}`} actions={<><OriginTags item={data} /><StatusTag value={data.severity} /><StatusTag value={data.status} /><Button type="primary" icon={<ReloadOutlined />} loading={reanalyze.isPending} onClick={() => reanalyze.mutate()}>重新分析</Button></>} />
       <Card title="事件概况">
         <Descriptions bordered column={{ xs: 1, md: 2, xl: 4 }} size="small">
           <Descriptions.Item label="关联告警数">{data.alert_count}</Descriptions.Item>
@@ -412,6 +438,7 @@ function RawAlertsPage() {
       <Card><Table rowKey="id" loading={query.isLoading} dataSource={query.data?.items || []} pagination={{ pageSize: 20 }} columns={[
         { title: '告警名', dataIndex: 'alertname' },
         { title: '服务', render: (_: unknown, row: any) => row.labels?.service || row.labels?.job || '-' },
+        { title: '来源', width: 220, render: (_: unknown, row: any) => <OriginTags item={row} /> },
         { title: '命名空间', render: (_: unknown, row: any) => row.labels?.namespace || '-' },
         { title: '级别', dataIndex: 'severity', width: 95, render: (value) => <StatusTag value={value} /> },
         { title: '状态', dataIndex: 'status', width: 95, render: (value) => <StatusTag value={value} /> },
@@ -430,6 +457,7 @@ function DeliveriesPage() {
       <Card><Table rowKey="id" loading={query.isLoading} dataSource={query.data?.items || []} pagination={{ pageSize: 20 }} columns={[
         { title: 'ID', dataIndex: 'id', width: 70 },
         { title: '状态', dataIndex: 'status', width: 95, render: (value) => <StatusTag value={value} /> },
+        { title: '来源', width: 220, render: (_: unknown, row: any) => <OriginTags item={row} /> },
         { title: 'Receiver', dataIndex: 'receiver', ellipsis: true },
         { title: '告警数', dataIndex: 'alert_count', width: 85 },
         { title: '关联事件', dataIndex: 'incidents', render: (values: number[]) => <Space wrap>{(values || []).map((id) => <Link key={id} to={`/incidents/${id}`}>#{id}</Link>)}</Space> },
@@ -540,7 +568,14 @@ function AppLayout() {
         ]} />
       </Layout.Sider>
       <Layout>
-        <Layout.Header className="header"><div><Typography.Text type="secondary">WORK'S K8S</Typography.Text><Typography.Title level={4}>AI 运维事件中心</Typography.Title></div><Space><Tag color="green">DEV</Tag><Typography.Text type="secondary">k8s-cp01</Typography.Text></Space></Layout.Header>
+        <Layout.Header className="header">
+          <div className="header-left">
+            <Typography.Text className="header-product">WORK&apos;S K8S</Typography.Text>
+            <span className="header-divider" />
+            <Typography.Text type="secondary" className="header-section">AIOps 运维工作台</Typography.Text>
+          </div>
+          <Space><Tag color="green">DEV</Tag><Typography.Text type="secondary" className="header-node">k8s-cp01</Typography.Text></Space>
+        </Layout.Header>
         <Layout.Content className="content">
           <Routes>
             <Route path="/dashboard" element={<DashboardPage />} />

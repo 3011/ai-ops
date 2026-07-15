@@ -70,7 +70,55 @@ def grouping(labels: dict[str, Any]) -> tuple[str, dict[str, str]]:
     return "|".join(selected.values()), selected
 
 
+def classify_origin(
+    *,
+    title: str = "",
+    labels: dict[str, Any] | None = None,
+    annotations: dict[str, Any] | None = None,
+    fingerprint: str = "",
+    receiver: str = "",
+) -> dict[str, Any]:
+    labels = labels or {}
+    annotations = annotations or {}
+    searchable = " ".join(
+        [
+            title,
+            fingerprint,
+            str(labels.get("service") or ""),
+            str(labels.get("alertname") or ""),
+            str(labels.get("namespace") or ""),
+            str(annotations.get("summary") or ""),
+            str(annotations.get("description") or ""),
+        ]
+    ).lower()
+    is_test = any(
+        marker in searchable
+        for marker in (
+            "devtest",
+            "demo-service",
+            "integration-test",
+            "aiopsintegrationtest",
+            "链路测试",
+            "演示服务",
+        )
+    )
+    automated = bool(
+        labels.get("prometheus")
+        or labels.get("aiops_enabled") == "true"
+        or receiver.startswith("aiops-dev/")
+        or "integration-test" in searchable
+        or "aiopsintegrationtest" in searchable
+    )
+    source = "alertmanager" if automated else "manual_webhook"
+    return {
+        "source": source,
+        "source_label": "Alertmanager 自动投递" if automated else "手工 Webhook 测试",
+        "is_test": is_test,
+    }
+
+
 def incident_payload(row: Incident) -> dict[str, Any]:
+    origin = classify_origin(title=row.title, labels=row.labels)
     return {
         "id": row.id,
         "title": row.title,
@@ -81,6 +129,7 @@ def incident_payload(row: Incident) -> dict[str, Any]:
         "first_seen_at": row.first_seen_at,
         "last_seen_at": row.last_seen_at,
         "resolved_at": row.resolved_at,
+        **origin,
     }
 
 
@@ -137,7 +186,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.4.1", lifespan=lifespan)
 app.mount("/metrics", make_asgi_app())
 
 
@@ -615,6 +664,12 @@ async def list_alerts(
                 "starts_at": row.starts_at,
                 "ends_at": row.ends_at,
                 "last_seen_at": row.last_seen_at,
+                **classify_origin(
+                    title=row.alertname,
+                    labels=row.labels,
+                    annotations=row.annotations,
+                    fingerprint=row.fingerprint,
+                ),
             }
             for row in rows
         ],
@@ -646,6 +701,13 @@ async def list_webhook_deliveries(
                 "alert_count": len((row.payload or {}).get("alerts") or []),
                 "incidents": (row.processing_result or {}).get("incidents", []),
                 "received_at": row.received_at,
+                **classify_origin(
+                    title=str(((row.payload or {}).get("commonAnnotations") or {}).get("summary") or ""),
+                    labels=(row.payload or {}).get("commonLabels") or (((row.payload or {}).get("alerts") or [{}])[0].get("labels") or {}),
+                    annotations=(row.payload or {}).get("commonAnnotations") or (((row.payload or {}).get("alerts") or [{}])[0].get("annotations") or {}),
+                    fingerprint=str((((row.payload or {}).get("alerts") or [{}])[0].get("fingerprint") or "")),
+                    receiver=row.receiver or "",
+                ),
             }
             for row in rows
         ],
@@ -761,6 +823,21 @@ async def incident_detail(
             .order_by(EvidenceSnapshot.created_at.desc())
         )
     ).all()
+    detail_origin = classify_origin(title=incident.title, labels=incident.labels)
+    if alerts:
+        alert_origins = [
+            classify_origin(
+                title=alert.alertname,
+                labels=alert.labels,
+                annotations=alert.annotations,
+                fingerprint=alert.fingerprint,
+            )
+            for alert in alerts
+        ]
+        detail_origin["is_test"] = any(item["is_test"] for item in alert_origins)
+        if any(item["source"] == "alertmanager" for item in alert_origins):
+            detail_origin["source"] = "alertmanager"
+            detail_origin["source_label"] = "Alertmanager 自动投递"
     return {
         "id": incident.id,
         "title": incident.title,
@@ -771,6 +848,7 @@ async def incident_detail(
         "first_seen_at": incident.first_seen_at,
         "last_seen_at": incident.last_seen_at,
         "resolved_at": incident.resolved_at,
+        **detail_origin,
         "alerts": [
             {
                 "id": alert.id,
@@ -781,6 +859,12 @@ async def incident_detail(
                 "annotations": alert.annotations,
                 "starts_at": alert.starts_at,
                 "ends_at": alert.ends_at,
+                **classify_origin(
+                    title=alert.alertname,
+                    labels=alert.labels,
+                    annotations=alert.annotations,
+                    fingerprint=alert.fingerprint,
+                ),
             }
             for alert in alerts
         ],

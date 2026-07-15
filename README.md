@@ -137,3 +137,7 @@ PrometheusRule → Prometheus → Alertmanager → AIOps API → PostgreSQL Outb
 - API 连通性测试
 
 API Key 使用 `SETTINGS_ENCRYPTION_KEY` 通过 Fernet 加密后存入 PostgreSQL，前端只显示是否已配置，不回显明文。Worker 每次分析时读取最新数据库配置，无需重启。
+
+## 测试数据标识
+
+控制台会根据告警 fingerprint、服务名、annotation 和 Alertmanager 标签标记链路测试数据。事件中心、原始告警、Webhook 投递和事件详情会显示“测试数据”“Alertmanager 自动投递”或“手工 Webhook 测试”，避免把开发验收记录误认为生产事故。
