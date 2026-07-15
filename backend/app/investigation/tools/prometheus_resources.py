@@ -85,14 +85,31 @@ def _vector_value(payload: dict[str, Any], target: TargetContext) -> tuple[float
 
 
 def _coverage(points: list[dict[str, Any]], start: datetime, end: datetime, step_seconds: int) -> dict[str, Any]:
-    expected = max(1, int((end - start).total_seconds() // step_seconds) + 1)
-    unique_timestamps = len({round(float(item["timestamp"]), 3) for item in points})
-    ratio = min(1.0, unique_timestamps / expected)
+    timestamps = sorted({round(float(item["timestamp"]), 3) for item in points})
+    requested_expected = max(1, int((end - start).total_seconds() // step_seconds) + 1)
+    if not timestamps:
+        return {
+            "requested_expected_points": requested_expected,
+            "observed_timestamps": 0,
+            "observed_expected_points": 0,
+            "observed_density_ratio": 0.0,
+            "requested_window_ratio": 0.0,
+            "observed_start": None,
+            "observed_end": None,
+            "complete": False,
+        }
+    observed_expected = max(1, int((timestamps[-1] - timestamps[0]) // step_seconds) + 1)
+    density_ratio = min(1.0, len(timestamps) / observed_expected)
+    requested_ratio = min(1.0, len(timestamps) / requested_expected)
     return {
-        "expected_points": expected,
-        "observed_timestamps": unique_timestamps,
-        "ratio": round(ratio, 4),
-        "complete": ratio >= 0.70,
+        "requested_expected_points": requested_expected,
+        "observed_timestamps": len(timestamps),
+        "observed_expected_points": observed_expected,
+        "observed_density_ratio": round(density_ratio, 4),
+        "requested_window_ratio": round(requested_ratio, 4),
+        "observed_start": datetime.fromtimestamp(timestamps[0], tz=UTC).isoformat(),
+        "observed_end": datetime.fromtimestamp(timestamps[-1], tz=UTC).isoformat(),
+        "complete": density_ratio >= 0.70 and len(timestamps) >= 3,
     }
 
 
@@ -312,11 +329,22 @@ class GetCPUUsageVsRequestLimitTool:
             )
         baseline_points = [item for item in points if item["timestamp"] < incident_start.timestamp()]
         incident_points = [item for item in points if item["timestamp"] >= incident_start.timestamp()]
+        baseline_method = "fixed_target_window"
+        if len(baseline_points) < 3 or len(incident_points) < 2:
+            # New Pods may not exist in the requested historical part of TargetContext.
+            # A bounded split of the same UID series is allowed, but never data from another Pod.
+            split_index = max(3, min(len(points) - 3, int(len(points) * 0.45))) if len(points) >= 6 else 0
+            if split_index:
+                baseline_points = points[:split_index]
+                incident_points = points[split_index:]
+                incident_start = datetime.fromtimestamp(incident_points[0]["timestamp"], tz=UTC)
+                baseline_method = "observed_same_uid_series_split"
         if len(baseline_points) < 3 or len(incident_points) < 2:
             data = {
                 "baseline_start": baseline_start.isoformat(),
                 "incident_start": incident_start.isoformat(),
                 "query_end": end.isoformat(),
+                "baseline_method": baseline_method,
                 "baseline_sample_count": len(baseline_points),
                 "incident_sample_count": len(incident_points),
                 "sampling_warning": "CPU 基线或事件窗口样本不足，不能确认 CPU Spike。",
@@ -360,6 +388,7 @@ class GetCPUUsageVsRequestLimitTool:
             "incident_start": incident_start.isoformat(),
             "query_end": end.isoformat(),
             "step_seconds": args.step_seconds,
+            "baseline_method": baseline_method,
             "baseline_sample_count": len(baseline_points),
             "incident_sample_count": len(incident_points),
             "baseline_median_cores": round(baseline_median, 9),

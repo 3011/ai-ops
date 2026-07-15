@@ -134,6 +134,22 @@ class FakePrometheusClient:
         return empty_vector()
 
 
+class LatePodPrometheusClient(FakePrometheusClient):
+    async def query_range(self, *, query: str, target: TargetContext, start: datetime, end: datetime, step_seconds: int):
+        self.calls.append(query)
+        if "container_cpu_usage_seconds_total" in query:
+            # Pod appears late in the TargetContext window: first half idle, second half busy.
+            first = target.incident_time - timedelta(minutes=3)
+            values = []
+            for index in range(16):
+                timestamp = (first + timedelta(seconds=index * step_seconds)).timestamp()
+                values.append((timestamp, 0.01 if index < 7 else 0.18))
+            return matrix(self._metric(), values)
+        return await super().query_range(
+            query=query, target=target, start=start, end=end, step_seconds=step_seconds
+        )
+
+
 def as_result(observation, target: TargetContext, tool_name: str) -> ToolResult:
     now = datetime.now(UTC)
     return ToolResult(
@@ -270,6 +286,20 @@ class PrometheusToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(throttling_observation.data["throttling_sustained"])
         throttle_types = {item.finding_type for item in parse_cpu_throttling_findings(as_result(throttling_observation, target, throttling_tool.name), target)}
         self.assertEqual(throttle_types, {"cpu_throttling_sustained"})
+
+
+    async def test_late_created_pod_uses_same_uid_series_split(self):
+        target = make_target()
+        client = LatePodPrometheusClient(target)
+        tool = GetCPUUsageVsRequestLimitTool(client)
+        observation = await tool.execute(
+            target,
+            CPUUsageVsRequestLimitInput(baseline_minutes=30, spike_window_minutes=10, step_seconds=15),
+        )
+        self.assertEqual(observation.data["baseline_method"], "observed_same_uid_series_split")
+        self.assertTrue(observation.data["spike_detected"])
+        types = {item.finding_type for item in parse_cpu_usage_findings(as_result(observation, target, tool.name), target)}
+        self.assertIn("container_cpu_spike", types)
 
     async def test_same_name_different_uid_is_target_uncertain(self):
         target = make_target()
