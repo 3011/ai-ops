@@ -3,13 +3,15 @@ set -euo pipefail
 ROOT=${ROOT:-/root/aiops-console}
 NS=aiops-dev
 API=${API:-http://127.0.0.1:30801/api/v1}
+source "$ROOT/deploy/dev/scenarios/scenario_auth.sh"
+ensure_scenario_session
 
 kubectl apply -f "$ROOT/deploy/dev/scenarios/trace-mock.yaml"
 kubectl rollout status deployment/aiops-trace-mock -n "$NS" --timeout=180s
-curl -fsS -X PUT "$API/settings/traces" -H 'Content-Type: application/json' \
+scenario_curl -fsS -X PUT "$API/settings/traces" -H 'Content-Type: application/json' \
   -d '{"provider":"tempo","base_url":"http://aiops-trace-mock.aiops-dev.svc:3200","enabled":true,"service_tag":"service.name"}' >/dev/null
 for _ in $(seq 1 20); do
-  if curl -fsS -X POST "$API/settings/traces/test" -H 'Content-Type: application/json' \
+  if scenario_curl -fsS -X POST "$API/settings/traces/test" -H 'Content-Type: application/json' \
       -d '{"provider":"tempo","base_url":"http://aiops-trace-mock.aiops-dev.svc:3200","enabled":true,"service_tag":"service.name"}' >/dev/null; then
     break
   fi

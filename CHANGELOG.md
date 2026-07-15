@@ -18,7 +18,8 @@
 - 手动 Shadow API 通过 Outbox 交给 Worker 执行，保持只读 Kubernetes RBAC 边界；
 - 离线缺失参数调用仍绑定原 Target/Scope，Replay Snapshot 可通过 1.2.0 Validator；
 - 工具预算停止后增加一次强制 final diagnosis 轮次，避免仅因预算耗尽丢失结构化结论；
-- 后端 93 项测试（含隔离 PostgreSQL）通过，前端生产构建通过。
+- 后端 93 项测试（含隔离 PostgreSQL）通过，前端生产构建通过；
+- 场景回归工具改为内部签名会话、配额安全的顺序执行，并在清理时取消测试 follow-up。
 
 ## 0.9.0-dev.4 - 冻结调查输入与历史 Replay 适配
 

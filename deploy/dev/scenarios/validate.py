@@ -3,6 +3,8 @@ import base64
 import http.cookiejar
 import json
 import os
+from pathlib import Path
+import shlex
 import subprocess
 import sys
 from urllib.request import HTTPCookieProcessor, Request, build_opener
@@ -10,9 +12,24 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 API = os.getenv("AIOPS_API", "http://127.0.0.1:30801/api/v1")
 COOKIE_JAR = http.cookiejar.CookieJar()
 OPENER = build_opener(HTTPCookieProcessor(COOKIE_JAR))
+SESSION_TOKEN = ""
 
 
 def bootstrap_login() -> None:
+    global SESSION_TOKEN
+    SESSION_TOKEN = os.getenv("AIOPS_SESSION_TOKEN", "").strip()
+    if not SESSION_TOKEN:
+        auth_script = Path(__file__).with_name("scenario_auth.sh")
+        command = (
+            f"source {shlex.quote(str(auth_script))}; "
+            'ensure_scenario_session; printf %s "$AIOPS_SESSION_TOKEN"'
+        )
+        try:
+            SESSION_TOKEN = subprocess.check_output(["bash", "-lc", command], text=True).strip()
+        except subprocess.CalledProcessError:
+            SESSION_TOKEN = ""
+    if SESSION_TOKEN:
+        return
     username = os.getenv("AIOPS_TEST_USERNAME", "admin")
     password = os.getenv("AIOPS_TEST_PASSWORD")
     if not password:
@@ -35,7 +52,9 @@ def bootstrap_login() -> None:
 
 
 def get(path: str) -> dict:
-    with OPENER.open(API + path, timeout=20) as response:
+    headers = {"Cookie": f"aiops_session={SESSION_TOKEN}"} if SESSION_TOKEN else {}
+    request = Request(API + path, headers=headers)
+    with OPENER.open(request, timeout=20) as response:
         return json.load(response)
 
 
@@ -84,7 +103,11 @@ for fragment, expected_signal, min_score in [
 oom_row = find("OOMKilled")
 if oom_row:
     detail = get(f"/incidents/{oom_row['id']}")
-    trusted = (detail.get("trusted_investigations") or [None])[0]
+    trusted = next((
+        item for item in (detail.get("trusted_investigations") or [])
+        if item.get("run_kind") == "deterministic"
+        or str(item.get("engine") or "").startswith("deterministic_oom")
+    ), None)
     target = (trusted or {}).get("target_context") or {}
     findings = (trusted or {}).get("findings") or []
     tools = (trusted or {}).get("tool_executions") or []
