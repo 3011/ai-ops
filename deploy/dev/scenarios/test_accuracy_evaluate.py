@@ -42,5 +42,12 @@ class ScoreTruthTests(unittest.TestCase):
         self.assertEqual(summary["agent_useful_result_rate"], 1.0)
 
 
+    def test_pick_incident_uses_frozen_binding(self):
+        items = [{"id": 10, "title": "AIOps OOM"}, {"id": 11, "title": "AIOps OOM"}]
+        scenario = {"id": "oom", "title_contains": "AIOps OOM"}
+        selected = module.pick_incident(items, scenario, {"scenario_bindings": {"oom": {"incident_id": 10}}})
+        self.assertEqual(selected["id"], 10)
+
+
 if __name__ == "__main__":
     unittest.main()

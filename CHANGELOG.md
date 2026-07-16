@@ -157,3 +157,5 @@
 - 准确性闭环修正 Agent 指标口径：安全回退不再计为模型输出契约成功，并新增有效结果率；
 - Agent 契约允许引用真实 CPU/内存等指标百分比，仅禁止根因概率和置信度百分比，避免正确 OOM 结论被过度校验拒绝；
 - Schema repair 错误反馈增加字段路径，便于模型精确修复失败字段。
+
+- 准确性复评冻结每个场景的 Incident ID 与确定性父 Run ID，防止 resolved/follow-up Run 漂移污染 Precision/Recall；后续只更新 Agent 子 Run，以相同 Snapshot 对比修复效果。

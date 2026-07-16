@@ -68,6 +68,9 @@ class ScenarioResult:
 
 
 def pick_incident(items: list[dict[str, Any]], scenario: dict[str, Any], state: dict[str, Any]) -> dict[str, Any] | None:
+    binding = (state.get("scenario_bindings") or {}).get(scenario["id"]) or {}
+    if binding.get("incident_id") is not None:
+        return next((item for item in items if int(item.get("id") or 0) == int(binding["incident_id"])), None)
     started = parse_time(state.get("started_at"))
     candidates = []
     for item in items:
@@ -107,7 +110,13 @@ def evaluate_scenario(client: ApiClient, scenario: dict[str, Any], incidents: li
 
     runs = detail.get("trusted_investigations") or []
     deterministic = [run for run in runs if run.get("run_kind") == "deterministic" and run.get("engine") == scenario["engine"]]
-    run = max(deterministic, key=lambda value: int(value.get("id") or 0), default=None)
+    binding = (state.get("scenario_bindings") or {}).get(scenario["id"]) or {}
+    pinned_run_id = binding.get("deterministic_run_id")
+    run = (
+        next((item for item in deterministic if int(item.get("id") or 0) == int(pinned_run_id)), None)
+        if pinned_run_id is not None
+        else max(deterministic, key=lambda value: int(value.get("id") or 0), default=None)
+    )
     if not run or run.get("status") not in TERMINAL:
         base.update({"ready": False, "status": "RUN_PENDING", "run": run})
         return ScenarioResult(base, False)
@@ -369,6 +378,16 @@ def main() -> int:
         print(f"waiting for scenarios: {', '.join(pending)}", flush=True)
         time.sleep(args.poll_seconds)
     payloads = [item.payload for item in results]
+    bindings = dict(state.get("scenario_bindings") or {})
+    for item in payloads:
+        if item.get("incident_id") is None:
+            continue
+        binding = {"incident_id": item["incident_id"]}
+        if item.get("deterministic_run_id") is not None:
+            binding["deterministic_run_id"] = item["deterministic_run_id"]
+        bindings[item["id"]] = binding
+    state["scenario_bindings"] = bindings
+    args.state.write_text(json.dumps(state, ensure_ascii=False, indent=2, default=str))
     summary = aggregate(payloads, suite)
     report = {
         "schema_version": "1.0.0",
