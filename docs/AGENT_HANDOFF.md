@@ -1,10 +1,10 @@
 # AIOps Console Agent 交接手册
 
-> 交接快照时间：2026-07-16 02:36:32 +02:00（Europe/Amsterdam）
+> 交接快照时间：2026-07-16 03:05:01 +02:00（Europe/Amsterdam）
 > 项目：Work's K8s / AIOps Console
 > 当前发布版本：`0.9.0`
 > 发布分支：`release/0.9.0`
-> 当前部署与 `v0.9.0` 应用 Commit：`8450382d8b666341075491c2034b7b856efd39ef`
+> 当前部署与 `v0.9.0` 应用 Commit：`e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043`
 > 分支 HEAD 在本文件提交后会多一笔 docs-only Commit；应用基线与 Tag 仍以上述 Commit 为准
 
 本文档是后续 Agent 的首要上下文。开始任何修改前，先阅读本文件、`README.md`、`CHANGELOG.md`，再检查实时集群状态。不要仅依赖聊天历史。
@@ -33,7 +33,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://172.30.10.11:30300
 
 ```text
 本地分支：release/0.9.0
-部署应用 Commit / v0.9.0：8450382d8b666341075491c2034b7b856efd39ef
+部署应用 Commit / v0.9.0：e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043
 分支 HEAD：可能仅比应用 Commit 多一笔 docs-only 最终交接提交
 API 版本：0.9.0
 INVESTIGATION_MODE：shadow
@@ -61,7 +61,7 @@ Repository：https://github.com/3011/ai-ops
 
 ```text
 main / origin/main：3f5e96c（0.8.1 稳定基线）
-release/0.9.0 部署应用与 v0.9.0：8450382（0.9.0）
+release/0.9.0 部署应用与 v0.9.0：e0b5a3b（0.9.0）
 release/0.9.0 分支 HEAD：可能仅比应用基线多一笔 docs-only 最终交接提交
 ```
 
@@ -102,7 +102,7 @@ API 和 Worker Deployment 使用 `Recreate`。命名空间 ResourceQuota 较紧�
 
 ### 2.4 当前 live 状态
 
-最后核验：2026-07-16 02:36 +02:00（Europe/Amsterdam）。
+最后核验：2026-07-16 03:05 +02:00（Europe/Amsterdam）。
 
 ```text
 aiops-api       1/1 Running
@@ -111,7 +111,7 @@ aiops-web       1/1 Running
 postgresql-0    1/1 Running
 
 APP_VERSION：0.9.0
-GIT_COMMIT：8450382d8b666341075491c2034b7b856efd39ef
+GIT_COMMIT：e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043
 INVESTIGATION_MODE：shadow
 模型：enabled=true，openai-compatible / deepseek-v4-flash
 Trace：enabled=false，未配置真实 Tempo/Jaeger
@@ -934,7 +934,7 @@ Offline Snapshot Agent Replay + Validator 1.2.0
 Independent real-time Agent Shadow + comparison UI
 OOM/CPU evaluation + security regression
 Default investigation_mode=shadow
-Responsive login UI + failed-authentication session hardening
+High-contrast single-card login UI + failed-authentication session hardening
 ```
 
 新增持久化：
@@ -964,6 +964,7 @@ GET  /api/v1/investigation-evaluations/summary
 - 确定性 Run 和 Finding 仍是 OOMKilled、CPU Spike 等硬事实的唯一权威来源；
 - Agent 使用独立子 Run、独立预算和独立 Diagnosis，不覆盖父级；
 - 模型失败只使子 Run失败，Worker 的确定性完成状态不变；
+- 新 Run 明确区分 `MODEL_UNAVAILABLE` 与 `OUTPUT_CONTRACT_FAILED`；模型已响应但 Schema/安全措辞不合规时不得再标记为模型不可用；
 - Agent Validator 为 `INVALID` 时不创建正式 `InvestigationDiagnosisResult`；
 - Offline Replay 只消费 Snapshot 的模型可见 ToolResult，外部数据源访问数必须为 0；
 - Agent 只能选择九个注册只读工具，不允许自由 PromQL/LogQL，也没有 Kubernetes 写权限；
@@ -1003,12 +1004,12 @@ Model Availability Rate              65.22%  （观测指标，不是安全失�
 错误登录安全审计：已记录
 ```
 
-前端登录页已完成响应式双栏设计、能力概览、卡片内错误提示、错误后密码清空与自动聚焦、大写锁定提示、提交中防重复操作，以及动态版本/环境标识。
+前端登录页已精简为浅色单卡片布局，文字与输入框使用固定高对比色；继续保留卡片内错误提示、错误后密码清空与自动聚焦、大写锁定提示、提交中防重复操作，以及动态版本/环境标识。
 
 ### 15.5 测试基线
 
 ```text
-后端本地 discover：共 98 项，74 PASS，24 个隔离 PostgreSQL 用例按环境变量跳过
+后端本地 discover：共 100 项，75 PASS，25 个隔离 PostgreSQL 用例按环境变量跳过
 独立 Docker Network + PostgreSQL 17：65 PASS，0 skip
 认证路由专项：4 PASS
 前端 npm run build：PASS
@@ -1024,6 +1025,7 @@ Kubernetes YAML client dry-run：PASS
 
 - Run 1 的旧 ToolResult/Finding 契约不一致是真实历史 `INVALID`，必须保留；
 - Snapshot 1.2.0 的一个 `INVALID` 是修复前的历史回归证据；修复后的正式 Offline/Shadow Run 已为 `VALID`；
+- 历史 Shadow Run #54 的 10 次模型调用均为 `SUCCEEDED`，最终失败来自模型输出包含契约禁止的概率百分比；旧记录保留原始降级码，前端根据审计错误兼容显示为“输出契约失败”；
 - `VALID_WITH_WARNINGS` 主要来自目标未解析或历史降级，不得通过篡改历史数据“修绿”；
 - Trace 当前关闭且未配置真实 Tempo/Jaeger，不能声称 Trace 已可用。
 

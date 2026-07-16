@@ -1,5 +1,5 @@
 {
-  "snapshot_at": "2026-07-16T02:36:32+02:00",
+  "snapshot_at": "2026-07-16T03:05:01+02:00",
   "timezone": "Europe/Amsterdam",
   "project": "Work's K8s / AIOps Console",
   "repository": "git@github.com:3011/ai-ops.git",
@@ -7,9 +7,9 @@
     "version": "0.9.0",
     "status": "released_and_deployed",
     "branch": "release/0.9.0",
-    "deployed_application_commit": "8450382d8b666341075491c2034b7b856efd39ef",
+    "deployed_application_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043",
     "release_tag": "v0.9.0",
-    "release_tag_commit": "8450382d8b666341075491c2034b7b856efd39ef",
+    "release_tag_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043",
     "branch_head_note": "The branch contains or may contain one newer docs-only final handoff commit; the deployed application and v0.9.0 remain on the application commit.",
     "next_version": "TBD"
   },
@@ -22,7 +22,7 @@
     "release": {
       "name": "release/0.9.0",
       "version": "0.9.0",
-      "deployed_application_commit": "8450382d8b666341075491c2034b7b856efd39ef"
+      "deployed_application_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043"
     }
   },
   "paths": {
@@ -39,7 +39,7 @@
   },
   "runtime": {
     "app_version": "0.9.0",
-    "git_commit": "8450382d8b666341075491c2034b7b856efd39ef",
+    "git_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043",
     "investigation_mode": "shadow",
     "components": {
       "aiops-api": "1/1 Running",
@@ -142,7 +142,8 @@
     "unknown_user_runs_password_verifier": true,
     "failed_login_is_audited": true,
     "ui": [
-      "responsive two-panel login",
+      "high-contrast single-card login",
+      "solid light background and explicit dark text",
       "inline error alert",
       "clear and refocus password after failure",
       "caps-lock warning",
@@ -152,9 +153,9 @@
   },
   "test_baseline": {
     "local_unittest_discover": {
-      "total": 98,
-      "passed": 74,
-      "skipped_isolated_postgresql": 24
+      "total": 100,
+      "passed": 75,
+      "skipped_isolated_postgresql": 25
     },
     "isolated_postgresql_docker_network": {
       "passed": 65,
@@ -234,5 +235,23 @@
       "database password",
       "session cookie or bearer token"
     ]
+  },
+  "agent_failure_classification": {
+    "model_unavailable": {
+      "degradation_reason": "AGENT_MODEL_UNAVAILABLE",
+      "stop_reason": "MODEL_UNAVAILABLE"
+    },
+    "output_contract_failed": {
+      "degradation_reason": "AGENT_OUTPUT_CONTRACT_FAILED",
+      "stop_reason": "OUTPUT_CONTRACT_FAILED",
+      "model_is_considered_available": true
+    },
+    "historical_run_54": {
+      "model_invocations_succeeded": 10,
+      "tool_calls": 7,
+      "actual_failure": "AgentTurn ValidationError: probability percentages are forbidden",
+      "historical_record_mutated": false,
+      "ui_compatibility_classification": "output_contract_failed"
+    }
   }
 }
