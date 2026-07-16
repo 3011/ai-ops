@@ -1,4 +1,4 @@
-import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
+import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Form, Input, Result, Spin, Typography, message } from 'antd'
 import type { InputRef } from 'antd'
@@ -45,13 +45,27 @@ function loginErrorMessage(error: unknown) {
   return errorMessage(error) || '登录失败，请稍后重试。'
 }
 
+function ProductLogo() {
+  return (
+    <div className="auth-logo" aria-hidden="true">
+      <svg viewBox="0 0 48 48" role="img">
+        <path className="auth-logo-frame" d="M24 6.5 38 14.6v16.8L24 39.5 10 31.4V14.6L24 6.5Z" />
+        <circle cx="24" cy="16" r="2.7" />
+        <circle cx="17.2" cy="29" r="2.7" />
+        <circle cx="30.8" cy="29" r="2.7" />
+        <path className="auth-logo-link" d="m22.7 18.4-4.2 8.1m6.8-8.1 4.2 8.1M20 29h8" />
+      </svg>
+    </div>
+  )
+}
+
 function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="auth-shell">
       <main className="auth-form-panel">
         <div className="auth-page">
           <div className="auth-page-brand">
-            <div className="auth-logo"><SafetyCertificateOutlined /></div>
+            <ProductLogo />
             <div>
               <strong>AIOps Console</strong>
               <span>WORK&apos;S K8S</span>
