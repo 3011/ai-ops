@@ -60,6 +60,7 @@ import './styles.css'
 import { api } from './client'
 import { AuthProvider, PermissionRoute, useAuth } from './auth'
 import { AccessManagementPage, ReleasesPage } from './GovernancePages'
+import { APP_ENVIRONMENT, APP_VERSION } from './version'
 
 const colors: Record<string, string> = {
   critical: 'red',
@@ -1121,7 +1122,7 @@ function AppLayout() {
       <Layout.Sider className="app-sider" width={238} breakpoint="lg" collapsedWidth={0}>
         <div className="brand"><DeploymentUnitOutlined /><span>AIOps Console</span></div>
         <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['settings', 'governance']} items={menuItems} />
-        <div className="sider-version"><span>Platform</span><strong>v0.7.0</strong></div>
+        <div className="sider-version"><span>Platform</span><strong>v{APP_VERSION}</strong></div>
       </Layout.Sider>
       <Layout className="main-layout">
         <Layout.Header className="header">
@@ -1131,7 +1132,7 @@ function AppLayout() {
             <Typography.Text type="secondary" className="header-section">AIOps 运维工作台</Typography.Text>
           </div>
           <Space size={14}>
-            <Tag color="green">DEV</Tag>
+            <Tag color="green">{APP_ENVIRONMENT}</Tag>
             <Typography.Text type="secondary" className="header-node">k8s-cp01</Typography.Text>
             <Dropdown menu={userMenu} placement="bottomRight" trigger={['click']}>
               <button className="user-trigger"><Avatar size="small" icon={<UserOutlined />} /><span>{user.display_name}</span></button>

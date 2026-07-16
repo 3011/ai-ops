@@ -110,6 +110,11 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
+# Unknown users still execute the same password verifier path. This avoids a
+# fast-fail timing signal that could otherwise reveal whether an account exists.
+DUMMY_PASSWORD_HASH = hash_password("AIOps-dummy-password-check-only")
+
+
 def _session_secret() -> bytes:
     value = settings.auth_session_secret or ""
     if len(value) < 32:
@@ -156,7 +161,13 @@ def set_session_cookie(response: Response, user: User) -> None:
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, path="/", samesite="lax")
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+    )
 
 
 @dataclass(slots=True)

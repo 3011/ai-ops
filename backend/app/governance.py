@@ -5,11 +5,13 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
+    DUMMY_PASSWORD_HASH,
     Principal,
     clear_session_cookie,
     hash_password,
@@ -173,16 +175,18 @@ def release_payload(row: ReleaseNote) -> dict[str, Any]:
     }
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", response_model=None)
 async def login(
     payload: LoginInput,
     request: Request,
     response: Response,
     session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
+) -> Any:
     username = payload.username.strip().lower()
     user = await session.scalar(select(User).where(User.username == username))
-    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
+    password_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
+    password_matches = verify_password(payload.password, password_hash)
+    if user is None or not user.is_active or not password_matches:
         await record_audit(
             session,
             principal=None,
@@ -193,7 +197,15 @@ async def login(
             request=request,
         )
         await session.commit()
-        raise HTTPException(401, "用户名或密码错误")
+        failure = JSONResponse(
+            {"detail": "用户名或密码错误"},
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+        )
+        # A failed explicit login attempt must never leave a previous browser
+        # session active. Clearing it also makes the UI state unambiguous.
+        clear_session_cookie(failure)
+        return failure
     user.last_login_at = utcnow()
     principal = await principal_for_user(user, session)
     await record_audit(
@@ -204,6 +216,7 @@ async def login(
         request=request,
     )
     await session.commit()
+    response.headers["Cache-Control"] = "no-store"
     set_session_cookie(response, user)
     return {"user": principal.payload()}
 
