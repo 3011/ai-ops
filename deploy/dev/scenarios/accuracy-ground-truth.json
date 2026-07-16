@@ -10,7 +10,8 @@
     "parent_fact_overlap_min": 1.0,
     "agent_model_output_acceptance_min": 0.8,
     "agent_useful_result_min": 0.8,
-    "agent_safe_validation_min": 1.0
+    "agent_safe_validation_min": 1.0,
+    "agent_ground_truth_match_min": 1.0
   },
   "scenarios": [
     {
@@ -30,7 +31,15 @@
         "VALID",
         "VALID_WITH_WARNINGS"
       ],
-      "agent_expected": true
+      "agent_expected": true,
+      "agent_expected_terms_any": [
+        "内存泄漏",
+        "突发内存分配",
+        "内存使用量",
+        "内存增长",
+        "unbounded allocation",
+        "memory leak"
+      ]
     },
     {
       "id": "oom-sampled",
@@ -54,7 +63,15 @@
         "VALID",
         "VALID_WITH_WARNINGS"
       ],
-      "agent_expected": true
+      "agent_expected": true,
+      "agent_expected_terms_any": [
+        "内存泄漏",
+        "突发内存分配",
+        "内存使用量",
+        "内存增长",
+        "unbounded allocation",
+        "memory leak"
+      ]
     },
     {
       "id": "cpu-spike",
@@ -74,7 +91,11 @@
         "VALID",
         "VALID_WITH_WARNINGS"
       ],
-      "agent_expected": true
+      "agent_expected": true,
+      "agent_expected_terms_any": [
+        "热点循环",
+        "hot loop"
+      ]
     },
     {
       "id": "oom-negative-control",

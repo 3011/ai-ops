@@ -305,6 +305,11 @@ class AgentContractTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError):
             AgentDiagnosisOutput(summary="根因已确认。", fact_refs=[])
 
+        with self.assertRaises(ValidationError):
+            AgentDiagnosisOutput(summary="根因为内存泄漏。", fact_refs=[])
+        with self.assertRaises(ValidationError):
+            AgentDiagnosisOutput(summary="The root cause is a memory leak.", fact_refs=[])
+
         positive = AgentDiagnosisOutput(
             summary="证据仍有限。", fact_refs=[], hypotheses=[],
             risk_notes=["根因已确认。"],

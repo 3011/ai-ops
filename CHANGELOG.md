@@ -164,3 +164,6 @@
 
 - Agent 契约与 Validator 允许“无法确认根因”“证据不足以确认根因”等否定语境的安全弃权，继续拒绝正向确认性结论；Validator 升级到 1.2.0，Prompt 升级到 v4。
 - 准确性发布门槛新增 Agent 安全校验率 100%，任何 `INVALID` 子 Run 都不会被有效结果率掩盖。
+
+- Agent 确认性语言进一步覆盖“根因为/根因是/root cause is”，防止模型绕过“根因已确认”规则；Prompt 升级到 v5。
+- Accuracy Loop 新增 Agent Ground Truth 语义命中率：OOM 强假设需命中内存异常增长/分配语义，CPU Spike 需命中 hot loop，不再以“有强假设”代替根因效果评估。

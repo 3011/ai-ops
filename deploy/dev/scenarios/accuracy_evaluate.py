@@ -181,9 +181,18 @@ def evaluate_scenario(client: ApiClient, scenario: dict[str, Any], incidents: li
             if any(term in str(item.get("statement") or "").casefold() for term in terms)
         ]
         positive_scenario = any(bool(value) for value in (scenario.get("finding_truth") or {}).values())
+        expected_terms = [str(term).casefold() for term in scenario.get("agent_expected_terms_any") or []]
+        strong_text = " ".join(
+            f"{item.get('statement') or ''} {item.get('rationale') or ''}"
+            for item in strong
+        ).casefold()
+        ground_truth_match = (
+            not positive_scenario
+            or (bool(strong) and (not expected_terms or any(term in strong_text for term in expected_terms)))
+        )
         useful_output = (
             model_output_accepted
-            and ((positive_scenario and bool(strong)) or (not positive_scenario and not false_signal_strong))
+            and ((positive_scenario and ground_truth_match) or (not positive_scenario and not false_signal_strong))
         )
         agent_summary.update({
             "run_id": agent.get("id"),
@@ -201,6 +210,8 @@ def evaluate_scenario(client: ApiClient, scenario: dict[str, Any], incidents: li
             "safe_validation": agent.get("agent_validation_status") in {"VALID", "VALID_WITH_WARNINGS"},
             "model_output_accepted": model_output_accepted,
             "useful_output": useful_output,
+            "ground_truth_match": ground_truth_match,
+            "expected_terms_any": scenario.get("agent_expected_terms_any") or [],
             "fallback_output": fallback_output,
             "contract_failure": contract_failure,
             "degradation_reasons": sorted(degradation),
@@ -237,6 +248,9 @@ def aggregate(results: list[dict[str, Any]], suite: dict[str, Any]) -> dict[str,
     agent_safe_validation_rate = ratio(sum(agent.get("safe_validation") is True for agent in agents), len(agents), empty=0.0)
     agent_output_acceptance_rate = ratio(sum(agent.get("model_output_accepted") is True for agent in agents), len(agents), empty=0.0)
     agent_useful_result_rate = ratio(sum(agent.get("useful_output") is True for agent in agents), len(agents), empty=0.0)
+    # Semantic Ground Truth is evaluated only for scenarios declaring expected terms.
+    semantic_agents = [agent for agent in agents if agent.get("expected_terms_any")]
+    agent_ground_truth_match_rate = ratio(sum(agent.get("ground_truth_match") is True for agent in semantic_agents), len(semantic_agents), empty=1.0)
     model_availability_rate = ratio(sum(agent.get("model_available") is True for agent in agents), len(agents), empty=0.0)
     parent_overlap_values = [agent.get("parent_fact_overlap") for agent in agents if isinstance(agent.get("parent_fact_overlap"), (int, float))]
     parent_overlap_rate = ratio(sum(value == 1.0 for value in parent_overlap_values), len(parent_overlap_values), empty=0.0)
@@ -254,6 +268,7 @@ def aggregate(results: list[dict[str, Any]], suite: dict[str, Any]) -> dict[str,
         "agent_parent_fact_overlap": parent_overlap_rate >= gates.get("parent_fact_overlap_min", 1.0),
         "agent_model_output_acceptance": agent_output_acceptance_rate >= gates.get("agent_model_output_acceptance_min", 0.80),
         "agent_useful_results": agent_useful_result_rate >= gates.get("agent_useful_result_min", 0.80),
+        "agent_ground_truth_match": agent_ground_truth_match_rate >= gates.get("agent_ground_truth_match_min", 1.0),
         "unsupported_hypotheses": unsupported_rate <= gates.get("unsupported_hypothesis_rate_max", 0.0),
     }
     return {
@@ -266,6 +281,7 @@ def aggregate(results: list[dict[str, Any]], suite: dict[str, Any]) -> dict[str,
         "agent_contract_rate": agent_output_acceptance_rate,
         "agent_model_output_acceptance_rate": agent_output_acceptance_rate,
         "agent_useful_result_rate": agent_useful_result_rate,
+        "agent_ground_truth_match_rate": agent_ground_truth_match_rate,
         "model_availability_rate": model_availability_rate,
         "agent_parent_fact_overlap_rate": parent_overlap_rate,
         "max_unsupported_hypothesis_rate": unsupported_rate,
@@ -301,6 +317,8 @@ def feedback(results: list[dict[str, Any]], summary: dict[str, Any]) -> list[dic
             if not agent.get("model_output_accepted"):
                 reason = "输出契约失败" if agent.get("contract_failure") else "未在受控步骤内形成最终输出"
                 items.append({"priority": "P1", "scenario": result["id"], "action": f"提高 Agent 模型输出接受率：{reason}。"})
+            elif not agent.get("ground_truth_match", True):
+                items.append({"priority": "P0", "scenario": result["id"], "action": f"Agent 强假设未命中 Ground Truth 语义：{', '.join(agent.get('expected_terms_any') or [])}。"})
             elif not agent.get("useful_output"):
                 items.append({"priority": "P1", "scenario": result["id"], "action": "Agent 输出安全但未形成符合场景期望的有效假设或安全弃权。"})
             if isinstance(agent.get("unsupported_hypothesis_rate"), (int, float)) and agent["unsupported_hypothesis_rate"] > 0:
@@ -337,6 +355,7 @@ def write_report(report: dict[str, Any], directory: Path) -> tuple[Path, Path]:
         f"| Agent Safe Validation | {s['agent_safe_validation_rate']:.2%} |",
         f"| Agent Model Output Acceptance | {s['agent_model_output_acceptance_rate']:.2%} |",
         f"| Agent Useful Result Rate | {s['agent_useful_result_rate']:.2%} |",
+        f"| Agent Ground Truth Match | {s['agent_ground_truth_match_rate']:.2%} |",
         f"| Agent Parent Fact Overlap | {s['agent_parent_fact_overlap_rate']:.2%} |",
         f"| Model Availability | {s['model_availability_rate']:.2%} |",
         f"| Scenario Requirement Rate | {s['scenario_requirement_rate']:.2%} |",

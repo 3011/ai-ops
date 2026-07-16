@@ -25,7 +25,8 @@ _NEGATED_CERTAINTY = re.compile(
     re.IGNORECASE,
 )
 _FORBIDDEN_CERTAINTY_TEXT = re.compile(
-    r"root[_ ]cause[_ ]confirmed|confirmed root cause|根因已确认|确认根因|认定根因",
+    r"root[_ ]cause[_ ]confirmed|confirmed root cause|root\s+cause\s+(?:is|was)|"
+    r"根因已确认|确认根因|认定根因|根因\s*(?:为|是|在于|来自)",
     re.IGNORECASE,
 )
 

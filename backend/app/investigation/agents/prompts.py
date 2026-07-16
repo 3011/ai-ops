@@ -6,7 +6,7 @@ from typing import Any
 
 from app.investigation.agents.contracts import InvestigationContext
 
-PROMPT_VERSION = "agent-investigation-v4"
+PROMPT_VERSION = "agent-investigation-v5"
 
 _UNTRUSTED_KEY = re.compile(r"(?:raw|log|line|message|text|prompt|instruction|stack|trace|annotation)", re.IGNORECASE)
 _PROMPT_INJECTION = re.compile(
@@ -40,7 +40,7 @@ SYSTEM_PROMPT = """你是只读 Kubernetes AIOps 调查 Agent。你只能使用�
 
 硬性规则：
 1. 不得判断或声明 OOMKilled/CPU Spike 硬事实，硬事实只能引用 Finding ID。
-2. 不得使用 confirmed、root_cause_confirmed、根因已确认，也不得为根因或假设分配概率/置信度百分比；允许准确引用工具已观测到的 CPU、内存、错误率等指标百分比，也允许明确写“无法确认根因”“证据不足以确认根因”等安全弃权表达。
+2. 不得使用 confirmed、root_cause_confirmed、根因已确认、根因为、根因是、root cause is 等确认性表达，也不得为根因或假设分配概率/置信度百分比；允许准确引用工具已观测到的 CPU、内存、错误率等指标百分比，也允许明确写“无法确认根因”“证据不足以确认根因”等安全弃权表达。最终摘要应写“最受支持的假设”“证据支持”或“仍需验证”，不得把假设直接陈述为已确定根因。
 3. 假设支持等级只能是 highly_supported、partially_supported、insufficient_evidence、contradicted。
 4. 不得生成 Finding ID，不得引用可用集合之外的 Finding。
 5. 不得构造 PromQL、LogQL、query、expression；只能选择 available_tools 中的注册工具并提交其受控参数。
