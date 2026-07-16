@@ -288,6 +288,33 @@ class AgentContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(report.status, "INVALID")
         self.assertTrue(report.checks["no_forbidden_certainty"])
 
+    def test_negated_root_cause_certainty_is_allowed(self) -> None:
+        diagnosis = AgentDiagnosisOutput(
+            summary="当前证据不足以确认根因。",
+            fact_refs=[],
+            hypotheses=[],
+            risk_notes=["无法确认根因，必须继续收集证据。"],
+        )
+        report = AgentResultValidator().validate(
+            diagnosis, allowed_finding_ids=[], observations=[],
+            allowed_tool_names=[], target_resolved=True,
+        )
+        self.assertNotEqual(report.status, "INVALID")
+        self.assertTrue(report.checks["no_forbidden_certainty"])
+
+        with self.assertRaises(ValidationError):
+            AgentDiagnosisOutput(summary="根因已确认。", fact_refs=[])
+
+        positive = AgentDiagnosisOutput(
+            summary="证据仍有限。", fact_refs=[], hypotheses=[],
+            risk_notes=["根因已确认。"],
+        )
+        positive_report = AgentResultValidator().validate(
+            positive, allowed_finding_ids=[], observations=[],
+            allowed_tool_names=[], target_resolved=True,
+        )
+        self.assertEqual(positive_report.status, "INVALID")
+
     def test_untrusted_incident_instruction_is_removed_from_prompt_context(self) -> None:
         poisoned = context().model_copy(update={
             "incident_summary": {

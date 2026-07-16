@@ -9,7 +9,8 @@
     "unsupported_hypothesis_rate_max": 0.0,
     "parent_fact_overlap_min": 1.0,
     "agent_model_output_acceptance_min": 0.8,
-    "agent_useful_result_min": 0.8
+    "agent_useful_result_min": 0.8,
+    "agent_safe_validation_min": 1.0
   },
   "scenarios": [
     {

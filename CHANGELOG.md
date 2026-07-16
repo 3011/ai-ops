@@ -161,3 +161,6 @@
 - 准确性复评冻结每个场景的 Incident ID 与确定性父 Run ID，防止 resolved/follow-up Run 漂移污染 Precision/Recall；后续只更新 Agent 子 Run，以相同 Snapshot 对比修复效果。
 
 - Agent 独立 Validator 升级到 1.1.0，与 Pydantic 输出契约统一概率百分比语义，允许工具观测指标百分比，继续禁止确认性和概率/置信度百分比。
+
+- Agent 契约与 Validator 允许“无法确认根因”“证据不足以确认根因”等否定语境的安全弃权，继续拒绝正向确认性结论；Validator 升级到 1.2.0，Prompt 升级到 v4。
+- 准确性发布门槛新增 Agent 安全校验率 100%，任何 `INVALID` 子 Run 都不会被有效结果率掩盖。

@@ -17,6 +17,36 @@ HypothesisSupport = Literal[
 ]
 AgentValidationStatus = Literal["VALID", "VALID_WITH_WARNINGS", "INVALID"]
 
+_NEGATED_CERTAINTY = re.compile(
+    r"(?:无法|不能|不足以|尚未|未能|并未|没有|不应|不得|不可)\s*(?:确认根因|认定根因|证明根因)"
+    r"|(?:cannot|can\'t|unable\s+to|insufficient\s+evidence\s+to|not\s+enough\s+evidence\s+to)"
+    r"\s+(?:confirm|establish|prove)(?:ed)?\s+(?:the\s+)?root\s+cause"
+    r"|root[_\s]+cause\s+(?:is\s+)?(?:not|unconfirmed)",
+    re.IGNORECASE,
+)
+_FORBIDDEN_CERTAINTY_TEXT = re.compile(
+    r"root[_ ]cause[_ ]confirmed|confirmed root cause|根因已确认|确认根因|认定根因",
+    re.IGNORECASE,
+)
+
+
+def contains_forbidden_certainty(value: str) -> bool:
+    without_safe_negation = _NEGATED_CERTAINTY.sub("[SAFE_UNCERTAINTY]", value)
+    if _FORBIDDEN_CERTAINTY_TEXT.search(without_safe_negation):
+        return True
+    try:
+        reject_probability_percentage(without_safe_negation)
+    except ValueError:
+        return True
+    return False
+
+
+def reject_forbidden_certainty(value: str) -> str:
+    if contains_forbidden_certainty(value):
+        raise ValueError("forbidden certainty or probability language")
+    return value
+
+
 _PROBABILITY_PERCENTAGE = re.compile(
     r"(?:概率|可能性|置信度|把握|probability|likelihood|confidence|chance)"
     r"\s*(?:为|是|is|[:：=])?\s*\d+(?:\.\d+)?\s*%"
@@ -74,14 +104,7 @@ class AgentHypothesis(BaseModel):
     @field_validator("statement", "rationale", "counterevidence_check")
     @classmethod
     def reject_forbidden_certainty(cls, value: str) -> str:
-        lowered = value.casefold()
-        forbidden = (
-            "root_cause_confirmed", "root cause confirmed", "confirmed root cause",
-            "根因已确认", "确认根因", "概率为", "probability is",
-        )
-        if any(token in lowered for token in forbidden):
-            raise ValueError("forbidden certainty language")
-        return reject_probability_percentage(value)
+        return reject_forbidden_certainty(value)
 
     @model_validator(mode="after")
     def validate_support(self) -> "AgentHypothesis":
@@ -105,13 +128,7 @@ class AgentDiagnosisOutput(BaseModel):
     @field_validator("summary")
     @classmethod
     def reject_summary_certainty(cls, value: str) -> str:
-        lowered = value.casefold()
-        if any(token in lowered for token in (
-            "root_cause_confirmed", "root cause confirmed", "confirmed root cause",
-            "根因已确认", "确认根因",
-        )):
-            raise ValueError("forbidden certainty language")
-        return reject_probability_percentage(value)
+        return reject_forbidden_certainty(value)
 
 
 class AgentToolObservation(BaseModel):
