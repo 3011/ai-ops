@@ -159,3 +159,5 @@
 - Schema repair 错误反馈增加字段路径，便于模型精确修复失败字段。
 
 - 准确性复评冻结每个场景的 Incident ID 与确定性父 Run ID，防止 resolved/follow-up Run 漂移污染 Precision/Recall；后续只更新 Agent 子 Run，以相同 Snapshot 对比修复效果。
+
+- Agent 独立 Validator 升级到 1.1.0，与 Pydantic 输出契约统一概率百分比语义，允许工具观测指标百分比，继续禁止确认性和概率/置信度百分比。

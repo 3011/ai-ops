@@ -276,6 +276,18 @@ class AgentContractTests(unittest.IsolatedAsyncioTestCase):
                 support_level="partially_supported", fact_refs=["F-cpu"], rationale="evidence",
             )
 
+        report = AgentResultValidator().validate(
+            AgentDiagnosisOutput(
+                summary="内存峰值达到 limit 的 98.5%。",
+                fact_refs=["F-cpu"],
+                hypotheses=[hypothesis],
+            ),
+            allowed_finding_ids=["F-cpu"], observations=[],
+            allowed_tool_names=[], target_resolved=True,
+        )
+        self.assertNotEqual(report.status, "INVALID")
+        self.assertTrue(report.checks["no_forbidden_certainty"])
+
     def test_untrusted_incident_instruction_is_removed_from_prompt_context(self) -> None:
         poisoned = context().model_copy(update={
             "incident_summary": {

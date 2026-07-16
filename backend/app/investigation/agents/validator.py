@@ -8,9 +8,10 @@ from app.investigation.agents.contracts import (
     AgentValidationIssue,
     AgentValidationReport,
     AgentToolObservation,
+    reject_probability_percentage,
 )
 
-AGENT_VALIDATOR_VERSION = "1.0.0"
+AGENT_VALIDATOR_VERSION = "1.1.0"
 _COUNTEREVIDENCE_TOKENS = (
     "counterevidence", "contradiction", "contradict", "反证", "矛盾",
     "但", "然而", "不过", "无法", "不足", "未发现", "未观察到",
@@ -29,9 +30,20 @@ def _has_counterevidence_check(hypothesis) -> bool:
 
 
 _FORBIDDEN_CERTAINTY = re.compile(
-    r"root[_ ]cause[_ ]confirmed|confirmed root cause|根因已确认|确认根因|(?:probability|概率)\s*(?:is|为)?\s*[:：]?\s*\d|\d+(?:\.\d+)?%",
+    r"root[_ ]cause[_ ]confirmed|confirmed root cause|根因已确认|确认根因|"
+    r"(?:probability|概率)\s*(?:is|为)?\s*[:：]?\s*\d",
     re.IGNORECASE,
 )
+
+
+def _contains_forbidden_certainty(rendered: str) -> bool:
+    if _FORBIDDEN_CERTAINTY.search(rendered):
+        return True
+    try:
+        reject_probability_percentage(rendered)
+    except ValueError:
+        return True
+    return False
 
 
 class AgentResultValidator:
@@ -57,7 +69,7 @@ class AgentResultValidator:
             (errors if severity == "error" else warnings).append(item)
 
         rendered = diagnosis.model_dump_json()
-        checks["no_forbidden_certainty"] = _FORBIDDEN_CERTAINTY.search(rendered) is None
+        checks["no_forbidden_certainty"] = not _contains_forbidden_certainty(rendered)
         if not checks["no_forbidden_certainty"]:
             issue("FORBIDDEN_CERTAINTY", "$", "Agent 输出包含禁止的确认性或概率表达。")
 
