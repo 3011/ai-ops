@@ -1,0 +1,465 @@
+{
+  "schema_version": "1.0.0",
+  "suite": "core-accuracy-v1",
+  "run_id": "20260716T024243Z-iteration3",
+  "started_at": "2026-07-16T02:42:48+00:00",
+  "evaluated_at": "2026-07-16T03:32:26+00:00",
+  "summary": {
+    "tp": 4,
+    "fp": 0,
+    "fn": 0,
+    "tn": 4,
+    "finding_precision": 1.0,
+    "finding_recall": 1.0,
+    "target_accuracy": 1.0,
+    "replay_integrity_rate": 1.0,
+    "agent_safe_validation_rate": 1.0,
+    "agent_contract_rate": 1.0,
+    "agent_model_output_acceptance_rate": 1.0,
+    "agent_useful_result_rate": 1.0,
+    "agent_ground_truth_match_rate": 1.0,
+    "model_availability_rate": 1.0,
+    "agent_parent_fact_overlap_rate": 1.0,
+    "max_unsupported_hypothesis_rate": 0.0,
+    "scenario_requirement_rate": 1.0,
+    "trusted_scenarios_evaluated": 5,
+    "coverage_scenarios": 1,
+    "gates": {
+      "finding_precision": true,
+      "finding_recall": true,
+      "target_accuracy": true,
+      "replay_integrity": true,
+      "scenario_requirements": true,
+      "agent_safe_validation": true,
+      "agent_parent_fact_overlap": true,
+      "agent_model_output_acceptance": true,
+      "agent_useful_results": true,
+      "agent_ground_truth_match": true,
+      "unsupported_hypotheses": true
+    },
+    "pass": true
+  },
+  "scenarios": [
+    {
+      "id": "oom-killed",
+      "kind": "trusted",
+      "found": true,
+      "incident_id": 33,
+      "title": "[critical] aiops-scenario-oom - AIOps 自动分析 OOMKilled 场景测试",
+      "ready": true,
+      "status": "EVALUATED",
+      "deterministic_run_id": 67,
+      "deterministic_status": "COMPLETED_PARTIAL",
+      "actual_findings": [
+        "container_oom_killed",
+        "container_restart_increased",
+        "memory_usage_increased",
+        "rollout_preceded_incident"
+      ],
+      "finding_score": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 0,
+        "rows": [
+          {
+            "finding_type": "container_oom_killed",
+            "expected": true,
+            "observed": true,
+            "outcome": "TP"
+          }
+        ]
+      },
+      "required_any_findings": [],
+      "required_any_pass": true,
+      "target_checks": {
+        "namespace": true,
+        "service": true,
+        "container": true,
+        "resolution_quality": true,
+        "pod_uid_present": true,
+        "alert_uid_match": true
+      },
+      "target_pass": true,
+      "replay_status": "VALID",
+      "replay_pass": true,
+      "agent": {
+        "expected": true,
+        "present": true,
+        "run_id": 78,
+        "run_kind": "agent_offline",
+        "status": "COMPLETED",
+        "validation_status": "VALID",
+        "evaluation_status": "PASS",
+        "model_available": true,
+        "parent_fact_overlap": 1.0,
+        "unsupported_hypothesis_rate": 0.0,
+        "contradiction_check_rate": 1.0,
+        "hypotheses": 2,
+        "strong_hypotheses": 1,
+        "false_signal_strong_hypotheses": [],
+        "safe_validation": true,
+        "model_output_accepted": true,
+        "useful_output": true,
+        "ground_truth_match": true,
+        "expected_terms_any": [
+          "内存泄漏",
+          "突发内存分配",
+          "内存使用量",
+          "内存增长",
+          "unbounded allocation",
+          "memory leak"
+        ],
+        "fallback_output": false,
+        "contract_failure": false,
+        "degradation_reasons": [
+          "SNAPSHOT_ONLY"
+        ],
+        "stop_reason": "NO_MORE_USEFUL_TOOLS"
+      }
+    },
+    {
+      "id": "oom-sampled",
+      "kind": "trusted",
+      "found": true,
+      "incident_id": 35,
+      "title": "[critical] aiops-scenario-oom-sampled - AIOps OOMKilled 内存采样场景测试",
+      "ready": true,
+      "status": "EVALUATED",
+      "deterministic_run_id": 65,
+      "deterministic_status": "COMPLETED_PARTIAL",
+      "actual_findings": [
+        "container_oom_killed",
+        "container_restart_increased",
+        "memory_usage_increased",
+        "rollout_preceded_incident"
+      ],
+      "finding_score": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 0,
+        "rows": [
+          {
+            "finding_type": "container_oom_killed",
+            "expected": true,
+            "observed": true,
+            "outcome": "TP"
+          }
+        ]
+      },
+      "required_any_findings": [
+        "memory_usage_increased",
+        "memory_near_limit",
+        "memory_limit_reached"
+      ],
+      "required_any_pass": true,
+      "target_checks": {
+        "namespace": true,
+        "service": true,
+        "container": true,
+        "resolution_quality": true,
+        "pod_uid_present": true,
+        "alert_uid_match": true
+      },
+      "target_pass": true,
+      "replay_status": "VALID",
+      "replay_pass": true,
+      "agent": {
+        "expected": true,
+        "present": true,
+        "run_id": 79,
+        "run_kind": "agent_offline",
+        "status": "COMPLETED",
+        "validation_status": "VALID",
+        "evaluation_status": "PASS",
+        "model_available": true,
+        "parent_fact_overlap": 1.0,
+        "unsupported_hypothesis_rate": 0.0,
+        "contradiction_check_rate": 1.0,
+        "hypotheses": 2,
+        "strong_hypotheses": 2,
+        "false_signal_strong_hypotheses": [],
+        "safe_validation": true,
+        "model_output_accepted": true,
+        "useful_output": true,
+        "ground_truth_match": true,
+        "expected_terms_any": [
+          "内存泄漏",
+          "突发内存分配",
+          "内存使用量",
+          "内存增长",
+          "unbounded allocation",
+          "memory leak"
+        ],
+        "fallback_output": false,
+        "contract_failure": false,
+        "degradation_reasons": [
+          "SNAPSHOT_ONLY"
+        ],
+        "stop_reason": "NO_MORE_USEFUL_TOOLS"
+      }
+    },
+    {
+      "id": "cpu-spike",
+      "kind": "trusted",
+      "found": true,
+      "incident_id": 36,
+      "title": "[warning] aiops-scenario-cpu - AIOps 可信 CPU Spike 场景测试",
+      "ready": true,
+      "status": "EVALUATED",
+      "deterministic_run_id": 69,
+      "deterministic_status": "COMPLETED_PARTIAL",
+      "actual_findings": [
+        "container_cpu_spike",
+        "container_restart_stable",
+        "cpu_hot_loop_hint_log_observed",
+        "cpu_near_limit",
+        "cpu_request_saturated",
+        "cpu_throttling_sustained",
+        "rollout_preceded_incident"
+      ],
+      "finding_score": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 0,
+        "rows": [
+          {
+            "finding_type": "container_cpu_spike",
+            "expected": true,
+            "observed": true,
+            "outcome": "TP"
+          },
+          {
+            "finding_type": "cpu_request_saturated",
+            "expected": true,
+            "observed": true,
+            "outcome": "TP"
+          }
+        ]
+      },
+      "required_any_findings": [],
+      "required_any_pass": true,
+      "target_checks": {
+        "namespace": true,
+        "service": true,
+        "container": true,
+        "resolution_quality": true,
+        "pod_uid_present": true,
+        "alert_uid_match": true
+      },
+      "target_pass": true,
+      "replay_status": "VALID",
+      "replay_pass": true,
+      "agent": {
+        "expected": true,
+        "present": true,
+        "run_id": 70,
+        "run_kind": "agent_shadow",
+        "status": "COMPLETED",
+        "validation_status": "VALID",
+        "evaluation_status": "PASS",
+        "model_available": true,
+        "parent_fact_overlap": 1.0,
+        "unsupported_hypothesis_rate": 0.0,
+        "contradiction_check_rate": 1.0,
+        "hypotheses": 2,
+        "strong_hypotheses": 2,
+        "false_signal_strong_hypotheses": [],
+        "safe_validation": true,
+        "model_output_accepted": true,
+        "useful_output": true,
+        "ground_truth_match": true,
+        "expected_terms_any": [
+          "热点循环",
+          "hot loop"
+        ],
+        "fallback_output": false,
+        "contract_failure": false,
+        "degradation_reasons": [],
+        "stop_reason": "NO_MORE_USEFUL_TOOLS"
+      }
+    },
+    {
+      "id": "oom-negative-control",
+      "kind": "trusted",
+      "found": true,
+      "incident_id": 31,
+      "title": "[warning] aiops-scenario-oom-negative - AIOps OOMKilled 负对照场景",
+      "ready": true,
+      "status": "EVALUATED",
+      "deterministic_run_id": 59,
+      "deterministic_status": "COMPLETED_PARTIAL",
+      "actual_findings": [
+        "rollout_preceded_incident"
+      ],
+      "finding_score": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1,
+        "rows": [
+          {
+            "finding_type": "container_oom_killed",
+            "expected": false,
+            "observed": false,
+            "outcome": "TN"
+          }
+        ]
+      },
+      "required_any_findings": [],
+      "required_any_pass": true,
+      "target_checks": {
+        "namespace": true,
+        "service": true,
+        "container": true,
+        "resolution_quality": true,
+        "pod_uid_present": true,
+        "alert_uid_match": true
+      },
+      "target_pass": true,
+      "replay_status": "VALID",
+      "replay_pass": true,
+      "agent": {
+        "expected": true,
+        "present": true,
+        "run_id": 60,
+        "run_kind": "agent_shadow",
+        "status": "COMPLETED",
+        "validation_status": "VALID",
+        "evaluation_status": "PASS",
+        "model_available": true,
+        "parent_fact_overlap": 1.0,
+        "unsupported_hypothesis_rate": 0.0,
+        "contradiction_check_rate": 1.0,
+        "hypotheses": 3,
+        "strong_hypotheses": 1,
+        "false_signal_strong_hypotheses": [],
+        "safe_validation": true,
+        "model_output_accepted": true,
+        "useful_output": true,
+        "ground_truth_match": true,
+        "expected_terms_any": [],
+        "fallback_output": false,
+        "contract_failure": false,
+        "degradation_reasons": [],
+        "stop_reason": "NO_MORE_USEFUL_TOOLS"
+      }
+    },
+    {
+      "id": "cpu-negative-control",
+      "kind": "trusted",
+      "found": true,
+      "incident_id": 32,
+      "title": "[warning] aiops-scenario-cpu-negative - AIOps High CPU 负对照场景",
+      "ready": true,
+      "status": "EVALUATED",
+      "deterministic_run_id": 61,
+      "deterministic_status": "COMPLETED_PARTIAL",
+      "actual_findings": [
+        "rollout_preceded_incident"
+      ],
+      "finding_score": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "tn": 3,
+        "rows": [
+          {
+            "finding_type": "container_cpu_spike",
+            "expected": false,
+            "observed": false,
+            "outcome": "TN"
+          },
+          {
+            "finding_type": "cpu_request_saturated",
+            "expected": false,
+            "observed": false,
+            "outcome": "TN"
+          },
+          {
+            "finding_type": "cpu_near_limit",
+            "expected": false,
+            "observed": false,
+            "outcome": "TN"
+          }
+        ]
+      },
+      "required_any_findings": [],
+      "required_any_pass": true,
+      "target_checks": {
+        "namespace": true,
+        "service": true,
+        "container": true,
+        "resolution_quality": true,
+        "pod_uid_present": true,
+        "alert_uid_match": true
+      },
+      "target_pass": true,
+      "replay_status": "VALID",
+      "replay_pass": true,
+      "agent": {
+        "expected": true,
+        "present": true,
+        "run_id": 77,
+        "run_kind": "agent_offline",
+        "status": "COMPLETED",
+        "validation_status": "VALID",
+        "evaluation_status": "PASS",
+        "model_available": true,
+        "parent_fact_overlap": 1.0,
+        "unsupported_hypothesis_rate": 0.0,
+        "contradiction_check_rate": 1.0,
+        "hypotheses": 1,
+        "strong_hypotheses": 0,
+        "false_signal_strong_hypotheses": [],
+        "safe_validation": true,
+        "model_output_accepted": true,
+        "useful_output": true,
+        "ground_truth_match": true,
+        "expected_terms_any": [],
+        "fallback_output": false,
+        "contract_failure": false,
+        "degradation_reasons": [
+          "SNAPSHOT_ONLY"
+        ],
+        "stop_reason": "NO_MORE_USEFUL_TOOLS"
+      }
+    },
+    {
+      "id": "crashloop-coverage",
+      "kind": "coverage",
+      "found": true,
+      "incident_id": 34,
+      "title": "[warning] aiops-scenario-crashloop - AIOps 自动分析 CrashLoop 场景测试",
+      "ready": true,
+      "status": "COVERED_LEGACY",
+      "legacy_signals_expected": [
+        "BackOff"
+      ],
+      "legacy_signals_matched": [
+        "BackOff"
+      ],
+      "trusted_run_count": 0,
+      "known_gap": "CrashLoop 当前只有通用证据分析，没有确定性 Finding 引擎。"
+    }
+  ],
+  "feedback": [
+    {
+      "priority": "P2",
+      "scenario": "oom-negative-control",
+      "action": "负对照在创建后立即告警，混入了真实 rollout 关联；后续使用预热基线资源以获得更纯净的负样本。"
+    },
+    {
+      "priority": "P2",
+      "scenario": "cpu-negative-control",
+      "action": "负对照在创建后立即告警，混入了真实 rollout 关联；后续使用预热基线资源以获得更纯净的负样本。"
+    },
+    {
+      "priority": "P1",
+      "scenario": "crashloop-coverage",
+      "action": "CrashLoop 当前只有通用证据分析，没有确定性 Finding 引擎。 下一步应增加受控工具、Parser、Finding 和正负样本。"
+    }
+  ]
+}

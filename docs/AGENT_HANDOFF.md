@@ -1,10 +1,10 @@
 # AIOps Console Agent 交接手册
 
-> 交接快照时间：2026-07-16 03:41:02 +02:00（Europe/Amsterdam）
+> 交接快照时间：2026-07-16 05:36:08 +02:00（Europe/Amsterdam）
 > 项目：Work's K8s / AIOps Console
 > 当前发布版本：`0.9.0`
 > 发布分支：`release/0.9.0`
-> 当前部署与 `v0.9.0` 应用 Commit：`6dbac1ebcb5476037bc5645d3c378c86e9c5ee23`
+> 当前部署与 `v0.9.0` 应用 Commit：`260c6da374a0c5676dcd558af506d25f38d62115`
 > 分支 HEAD 在本文件提交后会多一笔 docs-only Commit；应用基线与 Tag 仍以上述 Commit 为准
 
 本文档是后续 Agent 的首要上下文。开始任何修改前，先阅读本文件、`README.md`、`CHANGELOG.md`，再检查实时集群状态。不要仅依赖聊天历史。
@@ -33,7 +33,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://172.30.10.11:30300
 
 ```text
 本地分支：release/0.9.0
-部署应用 Commit / v0.9.0：6dbac1ebcb5476037bc5645d3c378c86e9c5ee23
+部署应用 Commit / v0.9.0：260c6da374a0c5676dcd558af506d25f38d62115
 分支 HEAD：可能仅比应用 Commit 多一笔 docs-only 最终交接提交
 API 版本：0.9.0
 INVESTIGATION_MODE：shadow
@@ -61,7 +61,7 @@ Repository：https://github.com/3011/ai-ops
 
 ```text
 main / origin/main：3f5e96c（0.8.1 稳定基线）
-release/0.9.0 部署应用与 v0.9.0：e0b5a3b（0.9.0）
+release/0.9.0 部署应用与 v0.9.0：260c6da（0.9.0）
 release/0.9.0 分支 HEAD：可能仅比应用基线多一笔 docs-only 最终交接提交
 ```
 
@@ -102,7 +102,7 @@ API 和 Worker Deployment 使用 `Recreate`。命名空间 ResourceQuota 较紧�
 
 ### 2.4 当前 live 状态
 
-最后核验：2026-07-16 03:05 +02:00（Europe/Amsterdam）。
+最后核验：2026-07-16 05:36 +02:00（Europe/Amsterdam）。
 
 ```text
 aiops-api       1/1 Running
@@ -111,7 +111,7 @@ aiops-web       1/1 Running
 postgresql-0    1/1 Running
 
 APP_VERSION：0.9.0
-GIT_COMMIT：6dbac1ebcb5476037bc5645d3c378c86e9c5ee23
+GIT_COMMIT：260c6da374a0c5676dcd558af506d25f38d62115
 INVESTIGATION_MODE：shadow
 模型：enabled=true，openai-compatible / deepseek-v4-flash
 Trace：enabled=false，未配置真实 Tempo/Jaeger
@@ -126,7 +126,7 @@ Dead jobs：0
 用户：2
 角色：4
 权限：11
-事件：30，全部 resolved
+事件：36，全部 resolved（其中包含准确性闭环测试事件）
 变更事件：14
 Outbox：succeeded 79，skipped 17；pending/retry/processing/dead 均为 0
 
@@ -749,12 +749,18 @@ ssh k8s 'kubectl exec -n aiops-dev deploy/aiops-worker -- \
   sh -ec "PYTHONPATH=/deps:/workspace python -m unittest discover -s /workspace/tests -v"'
 ```
 
-当前预期：
+当前本地完整回归：
 
 ```text
-69 tests
-OK
-13 个 PostgreSQL 用例按设计 skipped
+102 tests
+77 PASS
+25 个隔离 PostgreSQL 用例按设计 skipped
+```
+
+命令：
+
+```bash
+PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
 ```
 
 ### 12.3 隔离 PostgreSQL 测试
@@ -794,6 +800,19 @@ ssh k8s 'cd /root/aiops-console && bash deploy/dev/scenarios/cleanup.sh'
 测试资源全部应带 `aiops_test=true`，默认生产页面隐藏测试数据。
 
 覆盖：CrashLoop、快速/采样 OOM、CPU Spike、throttling、缺失标签、Node、HTTP planner、fingerprint 生命周期、rollout、ConfigMap、CI/CD、Trace mock、Gate 3 日志/RED/副本比较、Replay。
+
+Ground Truth 准确性闭环：
+
+```bash
+ssh k8s 'cd /root/aiops-console && bash deploy/dev/scenarios/run_accuracy_loop.sh'
+```
+
+闭环使用固定 Ground Truth、真实故障、负对照、冻结 Incident/父 Run、Precision/Recall、Agent 效果和自动反馈。规范见 `docs/ACCURACY_LOOP.md`；权威修复前后报告见：
+
+```text
+reports/accuracy/20260716T024243Z-frozen-baseline.md
+reports/accuracy/20260716T024243Z-iteration3.md
+```
 
 ### 12.6 同步源码
 
@@ -930,7 +949,9 @@ b4e9d1a  0.9 dev.3 Snapshot Replay and Validator
 
 ```text
 Agent Protocol + ModelInvocation Artifact audit
-Offline Snapshot Agent Replay + Validator 1.2.0
+Offline Snapshot Agent Replay + Snapshot Validator 1.2.0
+Agent Output Validator 1.2.0 + Prompt agent-investigation-v5
+Ground Truth Accuracy Loop + frozen scenario/run bindings
 Independent real-time Agent Shadow + comparison UI
 OOM/CPU evaluation + security regression
 Default investigation_mode=shadow
@@ -990,9 +1011,74 @@ Model Availability Rate              65.22%  （观测指标，不是安全失�
 
 所有发布 Gate 均为 true：越权/未注册工具、虚构 Finding、confirmed 表达、Prompt Injection 行为改变、父 Run 被模型失败影响、Offline 外部访问均为 0。
 
-`EFFECTIVENESS_WARNING` 13 条主要来自历史模型不可用或旧输出质量，不是安全失败；保留用于真实模型可用性改进。`FAIL` 为 0。
+`EFFECTIVENESS_WARNING` 13 条主要来自历史模型不可用或旧输出质量，不是安全失败；该段是闭环运行前的 23 个子 Run 发布基线。
 
-### 15.4 登录修复验收
+准确性闭环随后故意产生并永久保留了契约失败、Validator 失败和修复后 Replay，因此当前全库 Evaluation 状态包含 `PASS 24 / EFFECTIVENESS_WARNING 27 / FAIL 9`。这些全库历史计数不能替代冻结场景门槛，也不得通过删除失败 Run“修绿”。
+
+### 15.4 Ground Truth 准确性闭环
+
+第一轮真实执行创建并清理以下隔离场景：
+
+```text
+真实 OOMKilled
+带内存采样的 OOMKilled
+真实 CPU Spike / hot loop
+稳定内存 OOM 负对照
+空闲 CPU 负对照
+CrashLoop BackOff 覆盖场景
+```
+
+所有资源和告警携带 `aiops_test=true`；场景结束后临时资源为 0，未来测试任务为 0。每次复评冻结 Incident ID 和确定性父 Run ID，只更新 Agent 子 Run，确保修复前后使用同一 Snapshot。
+
+修复前冻结基线：
+
+```text
+Finding Precision                 100%
+Finding Recall                    100%
+Target Accuracy                   100%
+Replay Integrity                  100%
+Agent Safe Validation             100%
+Agent Model Output Acceptance      40%
+Agent Useful Result Rate           40%
+Agent Parent Fact Overlap         100%
+```
+
+闭环发现并修复：
+
+- 安全回退被错误计为 Agent 契约成功；
+- 所有百分号都被误判为根因概率，导致 OOM 指标百分比输出失败；
+- Pydantic 契约与独立 Validator 百分比语义不一致；
+- “证据不足以确认根因”被误判为确认性表达；
+- “根因为/根因是”可绕过原确认性规则；
+- 复评选择最新 follow-up Run，导致 Ground Truth 父 Run 漂移；
+- 仅检查“是否存在强假设”不能衡量 Agent 是否命中真实故障机制。
+
+最终 iteration3：
+
+```text
+Finding Precision                 100%
+Finding Recall                    100%
+Target Accuracy                   100%
+Replay Integrity                  100%
+Agent Safe Validation             100%
+Agent Model Output Acceptance     100%
+Agent Useful Result Rate          100%
+Agent Ground Truth Match          100%
+Agent Parent Fact Overlap         100%
+Unsupported Hypothesis Rate         0%
+TP / FP / FN / TN                4 / 0 / 0 / 4
+```
+
+最终报告：
+
+```text
+reports/accuracy/20260716T024243Z-frozen-baseline.{json,md}
+reports/accuracy/20260716T024243Z-iteration3.{json,md}
+```
+
+已知剩余覆盖缺口：CrashLoop 当前能够在通用证据链识别 `BackOff`，但还没有独立的受控确定性 Finding 引擎。负对照因测试 Deployment 与告警时间接近，会产生真实 `rollout_preceded_incident`；它没有造成 OOM/CPU 误报，但后续应改为预热的长驻基线 Fixture，使负样本更纯净。
+
+### 15.5 登录修复验收
 
 ```text
 有效签名会话调用 /auth/me：200
@@ -1006,10 +1092,10 @@ Model Availability Rate              65.22%  （观测指标，不是安全失�
 
 前端登录页已精简为浅色单卡片布局，文字与输入框使用固定高对比色；已删除 0.7 遗留双栏网格规则，使用全屏 Flex 将品牌区、卡片和页脚作为一个整体精确居中。通用安全证书图标已替换为自定义 AIOps 节点网络 Logo；继续保留卡片内错误提示、错误后密码清空与自动聚焦、大写锁定提示、提交中防重复操作，以及动态版本/环境标识。
 
-### 15.5 测试基线
+### 15.6 测试基线
 
 ```text
-后端本地 discover：共 100 项，75 PASS，25 个隔离 PostgreSQL 用例按环境变量跳过
+后端本地 discover：共 102 项，77 PASS，25 个隔离 PostgreSQL 用例按环境变量跳过
 独立 Docker Network + PostgreSQL 17：65 PASS，0 skip
 认证路由专项：4 PASS
 前端 npm run build：PASS
@@ -1022,15 +1108,17 @@ Kubernetes YAML client dry-run：PASS
 
 隔离 PostgreSQL 测试必须使用独立数据库；测试会执行 `drop_all/create_all`，严禁指向开发数据库。
 
-### 15.6 历史异常与保留证据
+### 15.7 历史异常与保留证据
 
 - Run 1 的旧 ToolResult/Finding 契约不一致是真实历史 `INVALID`，必须保留；
 - Snapshot 1.2.0 的一个 `INVALID` 是修复前的历史回归证据；修复后的正式 Offline/Shadow Run 已为 `VALID`；
-- 历史 Shadow Run #54 的 10 次模型调用均为 `SUCCEEDED`，最终失败来自模型输出包含契约禁止的概率百分比；旧记录保留原始降级码，前端根据审计错误兼容显示为“输出契约失败”；
+- 历史 Shadow Run #54 的 10 次模型调用均为 `SUCCEEDED`，最终失败来自当时输出契约禁止的概率百分比；旧记录保留原始降级码，前端根据审计错误兼容显示为“输出契约失败”；
+- Accuracy Loop 原始 OOM Shadow #66/#68 因旧规则把指标百分比误判为概率而失败；修复后同 Snapshot 的 Offline #74/#75 与语义收紧后的 #78/#79 均为 `COMPLETED/VALID`；
+- Offline #73 记录 Pydantic 与 Validator 百分比规则不一致，#76 记录否定语境“证据不足以确认根因”的误判；修复后的 CPU 负对照 #77 为 `COMPLETED/VALID`。这些失败证据必须保留；
 - `VALID_WITH_WARNINGS` 主要来自目标未解析或历史降级，不得通过篡改历史数据“修绿”；
 - Trace 当前关闭且未配置真实 Tempo/Jaeger，不能声称 Trace 已可用。
 
-### 15.7 永久禁止事项
+### 15.8 永久禁止事项
 
 - 不得让 Agent 改写确定性 Finding 或父级 Diagnosis；
 - 不得让模型确认 OOMKilled、CPU Spike 或具体代码根因；
@@ -1042,8 +1130,8 @@ Kubernetes YAML client dry-run：PASS
 - 不得在开发数据库运行破坏性测试；
 - 不得把静态 UI 文案当成后端健康探针，健康状态以 `/healthz`、`/readyz` 和 Pod Ready 为准。
 
-### 15.8 下一位 Agent 接管检查
+### 15.9 下一位 Agent 接管检查
 
-接管时依次确认：Git 分支/Tag、ConfigMap Commit、Pod Ready、API health/ready、Web 200、队列无 pending/dead、Evaluation summary 为 PASS。发现差异时先调查，不要重复部署或删除历史数据。
+接管时依次确认：Git 分支/Tag、ConfigMap Commit、Pod Ready、API health/ready、Web 200、队列无 pending/dead，以及 `reports/accuracy/20260716T024243Z-iteration3.md` 的冻结准确性 Gate 为 PASS。全库 Evaluation 含故意保留的失败实验，不能要求全库计数全绿。发现差异时先调查，不要重复部署或删除历史数据。
 
 下一版本：`TBD`。在没有明确需求前，不要自行扩展 Agent 权限、工具范围或自动化修复能力。

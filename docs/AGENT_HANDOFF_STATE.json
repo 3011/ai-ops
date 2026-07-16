@@ -1,5 +1,5 @@
 {
-  "snapshot_at": "2026-07-16T03:41:02+02:00",
+  "snapshot_at": "2026-07-16T05:36:08+02:00",
   "timezone": "Europe/Amsterdam",
   "project": "Work's K8s / AIOps Console",
   "repository": "git@github.com:3011/ai-ops.git",
@@ -7,9 +7,9 @@
     "version": "0.9.0",
     "status": "released_and_deployed",
     "branch": "release/0.9.0",
-    "deployed_application_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23",
+    "deployed_application_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
     "release_tag": "v0.9.0",
-    "release_tag_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23",
+    "release_tag_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
     "branch_head_note": "The branch contains or may contain one newer docs-only final handoff commit; the deployed application and v0.9.0 remain on the application commit.",
     "next_version": "TBD"
   },
@@ -22,7 +22,7 @@
     "release": {
       "name": "release/0.9.0",
       "version": "0.9.0",
-      "deployed_application_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23"
+      "deployed_application_commit": "260c6da374a0c5676dcd558af506d25f38d62115"
     }
   },
   "paths": {
@@ -39,7 +39,7 @@
   },
   "runtime": {
     "app_version": "0.9.0",
-    "git_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23",
+    "git_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
     "investigation_mode": "shadow",
     "components": {
       "aiops-api": "1/1 Running",
@@ -64,8 +64,8 @@
       "retry": 0,
       "processing": 0,
       "dead": 0,
-      "succeeded": 79,
-      "skipped": 17
+      "succeeded": 87,
+      "skipped": 23
     },
     "temporary_test_pods": 0,
     "non_running_pods": 0
@@ -75,41 +75,49 @@
     "roles": 4,
     "permissions": 11,
     "incidents": {
-      "resolved": 30
+      "resolved": 36
     },
     "change_events": 14,
     "trusted_runs": {
       "deterministic": {
-        "COMPLETED_PARTIAL": 34
+        "COMPLETED_PARTIAL": 41
       },
       "agent_offline": {
-        "COMPLETED": 2
+        "COMPLETED": 7,
+        "INCONCLUSIVE": 2
       },
       "agent_shadow": {
-        "COMPLETED_PARTIAL": 13,
-        "FAILED": 8
+        "COMPLETED": 4,
+        "COMPLETED_PARTIAL": 14,
+        "FAILED": 10
       }
     },
     "model_invocations": {
-      "SUCCEEDED": 169
+      "SUCCEEDED": 244
     },
     "replay_snapshots": {
+      "1.0.0": {
+        "VALID": 10,
+        "VALID_WITH_WARNINGS": 1,
+        "INVALID": 3
+      },
       "1.1.0": {
         "VALID": 12,
         "VALID_WITH_WARNINGS": 2,
         "INVALID": 1
       },
       "1.2.0": {
-        "VALID": 31,
-        "VALID_WITH_WARNINGS": 10,
-        "INVALID": 1
+        "VALID": 48,
+        "VALID_WITH_WARNINGS": 12,
+        "INVALID": 3
       }
     },
     "agent_evaluations_0_9_0": {
-      "PASS": 10,
-      "EFFECTIVENESS_WARNING": 13,
-      "FAIL": 0
-    }
+      "PASS": 24,
+      "EFFECTIVENESS_WARNING": 27,
+      "FAIL": 9
+    },
+    "historical_evaluation_note": "Includes intentionally preserved failed accuracy-loop iterations; use the frozen accuracy report for current gates."
   },
   "agent_release_evaluation": {
     "suite_version": "0.9.0",
@@ -164,8 +172,8 @@
   },
   "test_baseline": {
     "local_unittest_discover": {
-      "total": 100,
-      "passed": 75,
+      "total": 102,
+      "passed": 77,
       "skipped_isolated_postgresql": 25
     },
     "isolated_postgresql_docker_network": {
@@ -264,6 +272,87 @@
       "actual_failure": "AgentTurn ValidationError: probability percentages are forbidden",
       "historical_record_mutated": false,
       "ui_compatibility_classification": "output_contract_failed"
+    }
+  },
+  "accuracy_feedback_loop": {
+    "suite": "core-accuracy-v1",
+    "application_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
+    "scenarios": [
+      "oom-killed",
+      "oom-sampled",
+      "cpu-spike",
+      "oom-negative-control",
+      "cpu-negative-control",
+      "crashloop-coverage"
+    ],
+    "isolation": {
+      "namespace": "aiops-dev",
+      "test_label": "aiops_test=true",
+      "temporary_resources_after_run": 0,
+      "active_or_dead_test_jobs_after_run": 0
+    },
+    "frozen_bindings": true,
+    "baseline_report": "reports/accuracy/20260716T024243Z-frozen-baseline.json",
+    "final_report": "reports/accuracy/20260716T024243Z-iteration3.json",
+    "baseline": {
+      "finding_precision": 1.0,
+      "finding_recall": 1.0,
+      "target_accuracy": 1.0,
+      "replay_integrity_rate": 1.0,
+      "agent_safe_validation_rate": 1.0,
+      "agent_model_output_acceptance_rate": 0.4,
+      "agent_useful_result_rate": 0.4,
+      "agent_parent_fact_overlap_rate": 1.0,
+      "pass": false
+    },
+    "final": {
+      "finding_precision": 1.0,
+      "finding_recall": 1.0,
+      "target_accuracy": 1.0,
+      "replay_integrity_rate": 1.0,
+      "agent_safe_validation_rate": 1.0,
+      "agent_model_output_acceptance_rate": 1.0,
+      "agent_useful_result_rate": 1.0,
+      "agent_ground_truth_match_rate": 1.0,
+      "agent_parent_fact_overlap_rate": 1.0,
+      "unsupported_hypothesis_rate": 0.0,
+      "tp": 4,
+      "fp": 0,
+      "fn": 0,
+      "tn": 4,
+      "pass": true
+    },
+    "fixed_feedback": [
+      "safe fallback no longer counts as accepted model output",
+      "metric percentages are distinct from probability/confidence percentages",
+      "Pydantic and independent Validator certainty semantics are aligned",
+      "safe negated uncertainty language is allowed",
+      "positive root-cause assertions such as 根因为/root cause is are rejected",
+      "Incident and deterministic parent Run bindings are frozen for re-evaluation",
+      "Agent usefulness requires semantic Ground Truth match for positive scenarios"
+    ],
+    "remaining_gaps": [
+      "CrashLoop has general BackOff evidence but no deterministic Finding engine",
+      "negative controls should use pre-warmed baseline fixtures to remove real rollout correlation"
+    ],
+    "preserved_evidence_runs": {
+      "old_oom_failures": [
+        66,
+        68
+      ],
+      "validator_mismatch": [
+        73
+      ],
+      "safe_negation_false_positive": [
+        76
+      ],
+      "repaired": [
+        74,
+        75,
+        77,
+        78,
+        79
+      ]
     }
   }
 }

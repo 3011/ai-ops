@@ -55,3 +55,25 @@ bash /root/aiops-console/deploy/dev/scenarios/run_accuracy_loop.sh
 - 负对照告警使用唯一 fingerprint；
 - 清理只取消测试 Incident 的未来 follow-up Job；
 - 历史测试 Incident、Finding 和 Artifact 保留用于回归趋势。
+
+## 2026-07-16 首次真实闭环结果
+
+修复前冻结基线保持确定性 Precision/Recall、目标定位和 Replay 全部 100%，但 Agent 模型输出接受率和有效结果率仅为 40%。闭环根据真实失败依次修正评估口径、百分比语义、Validator 一致性、否定语境、确认性措辞和父 Run 冻结。
+
+最终 iteration3：
+
+```text
+Finding Precision                 100%
+Finding Recall                    100%
+Target Accuracy                   100%
+Replay Integrity                  100%
+Agent Safe Validation             100%
+Agent Model Output Acceptance     100%
+Agent Useful Result Rate          100%
+Agent Ground Truth Match          100%
+Agent Parent Fact Overlap         100%
+Unsupported Hypothesis Rate         0%
+TP / FP / FN / TN                4 / 0 / 0 / 4
+```
+
+这只是 `core-accuracy-v1` 六个隔离场景的结果，不代表所有 Kubernetes 故障类型已经达到相同准确率。CrashLoop 确定性 Finding 和更纯净的预热负样本仍是下一批工作。
