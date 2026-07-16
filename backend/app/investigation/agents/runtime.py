@@ -10,6 +10,7 @@ from app.investigation.agents.contracts import (
     AgentTurn,
     InvestigationContext,
 )
+from app.investigation.agents.errors import AgentOutputContractError
 from app.investigation.agents.model_runtime import StructuredModel
 from app.investigation.agents.prompts import build_turn_messages, sanitize_untrusted_value
 from app.investigation.agents.protocol import AgentToolRuntime
@@ -55,14 +56,14 @@ class StructuredInvestigationAgent:
             except ValidationError as exc:
                 validation_errors = [error["msg"] for error in exc.errors()[:12]]
                 if turn_number + 1 >= max_turns:
-                    raise
+                    raise AgentOutputContractError(str(exc)) from exc
                 continue
             validation_errors = []
             if turn.action == "final":
                 return turn.diagnosis  # type: ignore[return-value]
             call = turn.tool_call
             if call is None:
-                raise RuntimeError("AGENT_TOOL_CALL_MISSING")
+                raise AgentOutputContractError("AGENT_TOOL_CALL_MISSING")
             observation = await tools.execute(call.tool_name, call.arguments)
             observations.append(observation)
             if observation.error_code in {

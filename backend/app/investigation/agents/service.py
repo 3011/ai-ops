@@ -15,6 +15,7 @@ from app.investigation.agents.contracts import (
     InvestigationContext,
 )
 from app.investigation.agents.evaluation import persist_agent_evaluation
+from app.investigation.agents.errors import AgentOutputContractError
 from app.investigation.agents.model_runtime import OpenAICompatibleStructuredModel, StructuredModel
 from app.investigation.agents.runtime import StructuredInvestigationAgent
 from app.investigation.agents.tool_runtimes import LiveAgentToolRuntime, SnapshotAgentToolRuntime
@@ -195,6 +196,7 @@ async def execute_agent_run(
     )
 
     model_error: str | None = None
+    agent_error_kind: str | None = None
     try:
         if model is None:
             runtime = await load_runtime_model_config(session)
@@ -204,14 +206,26 @@ async def execute_agent_run(
         remaining_seconds = max(1.0, (budget.deadline_at - utcnow()).total_seconds())
         async with asyncio.timeout(remaining_seconds):
             diagnosis = await StructuredInvestigationAgent(model).investigate(context, tools, budget)
-    except Exception as exc:  # model failure must never modify or fail the parent run
+    except AgentOutputContractError as exc:
+        agent_error_kind = "output_contract"
         model_error = f"{type(exc).__name__}: {exc}"[:2000]
         diagnosis = AgentDiagnosisOutput(
-            summary="Agent 模型不可用或输出未通过结构化契约；确定性调查结果保持不变。",
+            summary="Agent 模型已响应，但最终输出未通过结构化契约；确定性调查结果保持不变。",
+            fact_refs=list(context.initial_finding_ids),
+            hypotheses=[],
+            missing_evidence=["模型未能在受控修复次数内返回符合 Agent 契约的最终 Diagnosis。"],
+            recommended_checks=["查看 schema_repair 调用及具体字段校验错误。"],
+            risk_notes=["契约失败不得影响父级确定性 Run。"],
+        )
+    except Exception as exc:  # model availability failure must never modify or fail the parent run
+        agent_error_kind = "model_unavailable"
+        model_error = f"{type(exc).__name__}: {exc}"[:2000]
+        diagnosis = AgentDiagnosisOutput(
+            summary="Agent 模型连接或调用失败；确定性调查结果保持不变。",
             fact_refs=list(context.initial_finding_ids),
             hypotheses=[],
             missing_evidence=["Agent 模型调用失败，详见 ModelInvocation 审计。"],
-            recommended_checks=["检查模型配置、调用状态和响应 Schema。"],
+            recommended_checks=["检查模型配置、网络、超时和供应商响应状态。"],
             risk_notes=["模型失败不得影响父级确定性 Run。"],
         )
 
@@ -241,9 +255,12 @@ async def execute_agent_run(
         "source_snapshot_hash": source_snapshot.snapshot_hash,
         "agent_validation": report.model_dump(mode="json"),
         "model_error": model_error,
+        "agent_error_kind": agent_error_kind,
     })
     degradation: list[str] = []
-    if model_error:
+    if agent_error_kind == "output_contract":
+        degradation.append("AGENT_OUTPUT_CONTRACT_FAILED")
+    elif agent_error_kind == "model_unavailable":
         degradation.append("AGENT_MODEL_UNAVAILABLE")
     if report.status == "INVALID":
         degradation.append("AGENT_OUTPUT_INVALID")
@@ -256,9 +273,12 @@ async def execute_agent_run(
     child.degradation_reasons = degradation
     child.budget_usage_json = ledger.snapshot().model_dump(mode="json")
     child.completed_at = utcnow()
-    if model_error:
+    if agent_error_kind == "output_contract":
         child.status = "FAILED"
-        child.stop_reason = "TOOL_UNAVAILABLE"
+        child.stop_reason = "OUTPUT_CONTRACT_FAILED"
+    elif agent_error_kind == "model_unavailable":
+        child.status = "FAILED"
+        child.stop_reason = "MODEL_UNAVAILABLE"
     elif report.status == "INVALID":
         child.status = "INCONCLUSIVE"
         child.stop_reason = "VALIDATION_FAILED"

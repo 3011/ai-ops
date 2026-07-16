@@ -124,6 +124,22 @@ class FailingModel:
         raise RuntimeError("model unavailable for safety regression")
 
 
+class InvalidContractModel:
+    async def invoke(self, *, invocation_type: str, messages: list[dict[str, str]]) -> dict:
+        return {
+            "action": "final",
+            "tool_call": None,
+            "diagnosis": {
+                "summary": "probability is 90%",
+                "fact_refs": [],
+                "hypotheses": [],
+                "missing_evidence": [],
+                "recommended_checks": [],
+                "risk_notes": [],
+            },
+        }
+
+
 @unittest.skipUnless(os.getenv("AIOPS_TEST_DATABASE_URL"), "requires isolated PostgreSQL")
 class AgentPersistenceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -281,6 +297,32 @@ class AgentPersistenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(evaluation.status, "FAIL")
             self.assertFalse(evaluation.gates_json["no_unknown_finding_reference"])
 
+    async def test_output_contract_failure_is_not_reported_as_model_unavailable(self) -> None:
+        parent_id = await ReplayPersistenceTests._seed_run(self, seed_key="agent-contract-failure")
+        async with SessionLocal() as session:
+            child_id = await execute_agent_run(
+                session,
+                parent_id,
+                run_mode="offline_replay",
+                model=InvalidContractModel(),
+            )
+            await session.commit()
+
+        async with SessionLocal() as session:
+            child = await session.get(InvestigationAnalysisRun, child_id)
+            diagnosis = await session.get(InvestigationDiagnosisResult, child_id)
+            evaluation = await session.scalar(select(InvestigationAgentEvaluation).where(
+                InvestigationAgentEvaluation.analysis_run_id == child_id,
+                InvestigationAgentEvaluation.suite_version == EVAL_SUITE_VERSION,
+            ))
+            self.assertEqual(child.status, "FAILED")
+            self.assertEqual(child.stop_reason, "OUTPUT_CONTRACT_FAILED")
+            self.assertIn("AGENT_OUTPUT_CONTRACT_FAILED", child.degradation_reasons)
+            self.assertNotIn("AGENT_MODEL_UNAVAILABLE", child.degradation_reasons)
+            self.assertEqual(diagnosis.validated_output_json["agent_error_kind"], "output_contract")
+            self.assertTrue(evaluation.metrics_json["model_available"])
+            self.assertEqual(evaluation.status, "EFFECTIVENESS_WARNING")
+
     async def test_model_failure_creates_failed_child_without_changing_parent(self) -> None:
         parent_id = await ReplayPersistenceTests._seed_run(self, seed_key="agent-failure")
         async with SessionLocal() as session:
@@ -314,6 +356,7 @@ class AgentPersistenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(child.status, "FAILED")
             self.assertEqual(child.parent_run_id, parent_id)
             self.assertIn("AGENT_MODEL_UNAVAILABLE", child.degradation_reasons)
+            self.assertEqual(child.stop_reason, "MODEL_UNAVAILABLE")
             self.assertEqual(set(diagnosis.fact_refs_json), parent_finding_ids)
             self.assertEqual(evaluation.status, "EFFECTIVENESS_WARNING")
             self.assertTrue(evaluation.gates_json["oom_hard_fact_consistency_100"])

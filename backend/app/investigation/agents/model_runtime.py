@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.investigation.agents.audit import ModelInvocationAudit
 from app.investigation.agents.contracts import AgentTurn
+from app.investigation.agents.errors import ModelOutputSchemaError
 from app.investigation.agents.prompts import PROMPT_VERSION
 from app.model_config import RuntimeModelConfig
 
@@ -101,7 +102,8 @@ class OpenAICompatibleStructuredModel:
             )
             return parsed
         except Exception as exc:
-            code = "MODEL_SCHEMA_ERROR" if isinstance(exc, (ValueError, json.JSONDecodeError, ValidationError)) else "MODEL_INVOCATION_FAILED"
+            is_schema_error = isinstance(exc, (ValueError, json.JSONDecodeError, ValidationError))
+            code = "MODEL_SCHEMA_ERROR" if is_schema_error else "MODEL_INVOCATION_FAILED"
             await self.audit.fail(
                 row,
                 started,
@@ -109,6 +111,8 @@ class OpenAICompatibleStructuredModel:
                 error_message=f"{type(exc).__name__}: {exc}",
                 response_payload=response_payload,
             )
+            if is_schema_error:
+                raise ModelOutputSchemaError(f"{type(exc).__name__}: {exc}") from exc
             raise
 
 

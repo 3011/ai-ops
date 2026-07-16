@@ -1,12 +1,4 @@
-import {
-  ApiOutlined,
-  CheckCircleFilled,
-  CloudServerOutlined,
-  LockOutlined,
-  RadarChartOutlined,
-  SafetyCertificateOutlined,
-  UserOutlined,
-} from '@ant-design/icons'
+import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Form, Input, Result, Spin, Typography, message } from 'antd'
 import type { InputRef } from 'antd'
@@ -56,48 +48,19 @@ function loginErrorMessage(error: unknown) {
 function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="auth-shell">
-      <section className="auth-brand-panel" aria-label="平台能力介绍">
-        <div className="auth-brand-top">
-          <div className="auth-logo"><SafetyCertificateOutlined /></div>
-          <div>
-            <span className="auth-brand-kicker">WORK&apos;S K8S</span>
-            <strong>AIOps Console</strong>
+      <main className="auth-form-panel">
+        <div className="auth-page">
+          <div className="auth-page-brand">
+            <div className="auth-logo"><SafetyCertificateOutlined /></div>
+            <div>
+              <strong>AIOps Console</strong>
+              <span>WORK&apos;S K8S</span>
+            </div>
           </div>
+          {children}
+          <div className="auth-page-footer">可信调查 · 权限审计 · 安全会话</div>
         </div>
-
-        <div className="auth-brand-copy">
-          <Typography.Title level={1}>把告警、变更与运行证据汇成一条可信调查链。</Typography.Title>
-          <Typography.Paragraph>
-            面向 Kubernetes 的事件关联、证据采集与 AI 辅助诊断工作台，帮助运维人员更快定位问题并保留完整审计轨迹。
-          </Typography.Paragraph>
-        </div>
-
-        <div className="auth-capability-grid">
-          <div className="auth-capability-card">
-            <CloudServerOutlined />
-            <strong>统一证据</strong>
-            <span>Kubernetes、Prometheus、Loki 与 Trace</span>
-          </div>
-          <div className="auth-capability-card">
-            <RadarChartOutlined />
-            <strong>可信调查</strong>
-            <span>确定性基线、Agent Shadow 与离线重放</span>
-          </div>
-          <div className="auth-capability-card">
-            <ApiOutlined />
-            <strong>治理闭环</strong>
-            <span>角色权限、操作审计与版本追踪</span>
-          </div>
-        </div>
-
-        <div className="auth-trust-strip">
-          <span className="auth-live-dot" />
-          <span>Agent Shadow 默认启用</span>
-          <span className="auth-trust-divider" />
-          <span>安全门槛持续校验</span>
-        </div>
-      </section>
-      <main className="auth-form-panel">{children}</main>
+      </main>
     </div>
   )
 }
@@ -133,15 +96,9 @@ function LoginPage({ onSuccess }: { onSuccess: () => Promise<unknown> }) {
     <AuthShell>
       <Card className="auth-card" bordered={false}>
         <div className="auth-card-header">
-          <div>
-            <Typography.Text className="auth-eyebrow">SECURE OPERATIONS ACCESS</Typography.Text>
-            <Typography.Title level={2}>欢迎回来</Typography.Title>
-            <Typography.Paragraph type="secondary">使用平台管理员分配的账号登录运维工作台。</Typography.Paragraph>
-          </div>
-          <div className="auth-service-status" role="status">
-            <CheckCircleFilled />
-            <span>安全会话</span>
-          </div>
+          <Typography.Text className="auth-eyebrow">运维工作台</Typography.Text>
+          <Typography.Title level={2}>登录</Typography.Title>
+          <Typography.Paragraph type="secondary">请输入平台账号和密码。</Typography.Paragraph>
         </div>
 
         {loginError && (
@@ -203,14 +160,10 @@ function LoginPage({ onSuccess }: { onSuccess: () => Promise<unknown> }) {
             htmlType="submit"
             loading={mutation.isPending}
           >
-            {mutation.isPending ? '正在验证…' : '安全登录'}
+            {mutation.isPending ? '正在验证…' : '登录'}
           </Button>
         </Form>
 
-        <div className="auth-security-note">
-          <SafetyCertificateOutlined />
-          <span>认证失败不会暴露账号状态，错误尝试会写入安全审计。</span>
-        </div>
         <div className="auth-version">
           <span>AIOps Console v{APP_VERSION}</span>
           <span>{APP_ENVIRONMENT}</span>

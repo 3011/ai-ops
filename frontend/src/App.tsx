@@ -577,6 +577,31 @@ function metricPercent(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '-'
 }
 
+function agentFailurePresentation(run: any) {
+  const output = run.diagnosis?.validated_output || {}
+  const rawError = String(output.model_error || '')
+  const reasons = new Set<string>(run.degradation_reasons || [])
+  const contractFailure = output.agent_error_kind === 'output_contract'
+    || reasons.has('AGENT_OUTPUT_CONTRACT_FAILED')
+    || /ValidationError|validation error for AgentTurn|probability percentages are forbidden|forbidden certainty language/i.test(rawError)
+  if (contractFailure) return {
+    kind: 'contract',
+    title: 'Agent 输出未通过结构化契约',
+    description: '模型调用已成功，但最终响应在受控修复次数内仍包含不允许的内容或字段格式。该子 Run 已隔离失败，父级确定性结果不受影响。',
+  }
+  if (output.agent_error_kind === 'model_unavailable' || reasons.has('AGENT_MODEL_UNAVAILABLE')) return {
+    kind: 'unavailable',
+    title: 'Agent 模型连接或调用失败',
+    description: '请检查模型配置、网络、超时和供应商响应；父级确定性结果保持不变。',
+  }
+  if (run.agent_validation_status === 'INVALID') return {
+    kind: 'invalid',
+    title: 'Agent 输出校验失败',
+    description: '输出引用或安全规则未通过独立校验，因此不会写入正式 Agent Diagnosis。',
+  }
+  return null
+}
+
 function AgentRunSummary({ run }: { run: any }) {
   const hypotheses = run.diagnosis?.hypotheses || []
   const invocations = run.model_invocations || []
@@ -584,10 +609,11 @@ function AgentRunSummary({ run }: { run: any }) {
   const validation = run.agent_validation_report || {}
   const validationColor = run.agent_validation_status === 'VALID' ? 'green' : run.agent_validation_status === 'INVALID' ? 'red' : 'gold'
   const evaluationColor = evaluation?.status === 'PASS' ? 'green' : evaluation?.status === 'FAIL' ? 'red' : 'gold'
+  const failure = agentFailurePresentation(run)
   return <Space direction="vertical" size={12} style={{ width: '100%' }}>
     <Descriptions bordered size="small" column={{ xs: 1, md: 3 }}>
       <Descriptions.Item label="Run / 模式">#{run.id} · <Tag>{run.run_kind}</Tag></Descriptions.Item>
-      <Descriptions.Item label="运行状态"><Tag color={run.status === 'COMPLETED' ? 'green' : run.status === 'FAILED' ? 'red' : 'gold'}>{run.status}</Tag></Descriptions.Item>
+      <Descriptions.Item label="运行状态"><Space size={6}><Tag color={run.status === 'COMPLETED' ? 'green' : run.status === 'FAILED' ? 'red' : 'gold'}>{run.status}</Tag>{run.stop_reason && <Typography.Text type="secondary">{run.stop_reason}</Typography.Text>}</Space></Descriptions.Item>
       <Descriptions.Item label="Agent 输出校验"><Tag color={validationColor}>{run.agent_validation_status || '-'}</Tag></Descriptions.Item>
       <Descriptions.Item label="父级 Run">#{run.parent_run_id}</Descriptions.Item>
       <Descriptions.Item label="来源 Snapshot"><Typography.Text code copyable>{run.source_snapshot_id || '-'}</Typography.Text></Descriptions.Item>
@@ -596,7 +622,12 @@ function AgentRunSummary({ run }: { run: any }) {
       <Descriptions.Item label="受控工具调用">{(run.tool_executions || []).length}</Descriptions.Item>
       <Descriptions.Item label="假设数">{hypotheses.length}</Descriptions.Item>
     </Descriptions>
-    <Alert type={run.status === 'FAILED' || run.agent_validation_status === 'INVALID' ? 'error' : 'info'} showIcon message={run.diagnosis?.summary || 'Agent 未输出摘要'} description={(run.degradation_reasons || []).length ? (run.degradation_reasons || []).join('；') : 'Shadow 结果不会写回父级确定性 Diagnosis。'} />
+    <Alert
+      type={failure ? 'error' : 'info'}
+      showIcon
+      message={failure?.title || run.diagnosis?.summary || 'Agent 未输出摘要'}
+      description={failure?.description || ((run.degradation_reasons || []).length ? (run.degradation_reasons || []).join('；') : 'Shadow 结果不会写回父级确定性 Diagnosis。')}
+    />
     <Card size="small" title="Agent 假设（非硬事实）">
       {hypotheses.length ? <List size="small" dataSource={hypotheses} renderItem={(item: any) => <List.Item>
         <List.Item.Meta title={<Space wrap><Tag color={supportColor(item.support_level)}>{item.support_level}</Tag><strong>{item.statement}</strong></Space>} description={<Space direction="vertical" size={2}><span>{item.rationale}</span><Typography.Text type="secondary">支持 Finding：{(item.fact_refs || []).join(', ') || '-'}；反证 Finding：{(item.contradicting_fact_refs || []).join(', ') || '-'}</Typography.Text></Space>} />

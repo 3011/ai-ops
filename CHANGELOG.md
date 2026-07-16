@@ -25,7 +25,9 @@
 - 完整 `NOT_FOUND` 与负向观测计入有效工具调用，反证率只衡量 highly/partially supported 的重要假设；
 - 重构登录页为响应式双栏安全入口，增加能力概览、卡片内错误反馈、密码自动清空聚焦和大写锁定提示；
 - 错误密码登录统一返回不可缓存 `401`，主动清除旧会话 Cookie，并对未知账号执行同等密码校验路径；
-- 登录页、侧栏和环境标识统一读取 `VITE_APP_VERSION` / `VITE_ENVIRONMENT`，修复前端 Deployment 重复 `env` 字段。
+- 登录页、侧栏和环境标识统一读取 `VITE_APP_VERSION` / `VITE_ENVIRONMENT`，修复前端 Deployment 重复 `env` 字段；
+- 登录页进一步精简为浅色单卡片布局，固定高对比文字、输入框和移动端样式；
+- Agent 失败原因区分模型不可用与输出契约失败，历史 Run 可根据审计错误兼容识别，避免误报“模型不可用”。
 
 ## 0.9.0-dev.4 - 冻结调查输入与历史 Replay 适配
 
