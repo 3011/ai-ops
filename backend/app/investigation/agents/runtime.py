@@ -16,7 +16,7 @@ from app.investigation.agents.prompts import build_turn_messages, sanitize_untru
 from app.investigation.agents.protocol import AgentToolRuntime
 from app.investigation.contracts import InvestigationBudget
 
-AGENT_RUNTIME_VERSION = "1.0.0"
+AGENT_RUNTIME_VERSION = "1.1.0"
 def model_safe_value(value: Any, *, key: str = "", depth: int = 0) -> Any:
     return sanitize_untrusted_value(value, key=key, depth=depth)
 
@@ -54,7 +54,10 @@ class StructuredInvestigationAgent:
             try:
                 turn = AgentTurn.model_validate(raw)
             except ValidationError as exc:
-                validation_errors = [error["msg"] for error in exc.errors()[:12]]
+                validation_errors = [
+                    f"{'.'.join(str(part) for part in error.get('loc') or ()) or '$'}: {error['msg']}"
+                    for error in exc.errors()[:12]
+                ]
                 if turn_number + 1 >= max_turns:
                     raise AgentOutputContractError(str(exc)) from exc
                 continue

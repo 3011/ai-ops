@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -15,6 +16,22 @@ HypothesisSupport = Literal[
     "contradicted",
 ]
 AgentValidationStatus = Literal["VALID", "VALID_WITH_WARNINGS", "INVALID"]
+
+_PROBABILITY_PERCENTAGE = re.compile(
+    r"(?:概率|可能性|置信度|把握|probability|likelihood|confidence|chance)"
+    r"\s*(?:为|是|is|[:：=])?\s*\d+(?:\.\d+)?\s*%"
+    r"|\d+(?:\.\d+)?\s*%\s*(?:的)?\s*"
+    r"(?:概率|可能性|置信度|把握|probability|likelihood|confidence|chance)"
+    r"|(?:根因|root\s+cause)\s*(?:概率|置信度|confidence|score|[:：=])"
+    r"\s*\d+(?:\.\d+)?\s*%",
+    re.IGNORECASE,
+)
+
+
+def reject_probability_percentage(value: str) -> str:
+    if _PROBABILITY_PERCENTAGE.search(value):
+        raise ValueError("probability percentage estimates are forbidden")
+    return value
 
 
 class AgentToolSpec(BaseModel):
@@ -64,9 +81,7 @@ class AgentHypothesis(BaseModel):
         )
         if any(token in lowered for token in forbidden):
             raise ValueError("forbidden certainty language")
-        if "%" in value:
-            raise ValueError("probability percentages are forbidden")
-        return value
+        return reject_probability_percentage(value)
 
     @model_validator(mode="after")
     def validate_support(self) -> "AgentHypothesis":
@@ -96,9 +111,7 @@ class AgentDiagnosisOutput(BaseModel):
             "根因已确认", "确认根因",
         )):
             raise ValueError("forbidden certainty language")
-        if "%" in value:
-            raise ValueError("probability percentages are forbidden")
-        return value
+        return reject_probability_percentage(value)
 
 
 class AgentToolObservation(BaseModel):

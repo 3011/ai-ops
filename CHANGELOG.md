@@ -153,3 +153,7 @@
 - 新增隔离 Ground Truth 场景闭环，覆盖 OOM、采样 OOM、CPU Spike、CrashLoop 与 OOM/CPU 负对照；
 - 新增 Finding Precision/Recall、目标定位准确率、Replay 完整性和 Agent Shadow 效果评估；
 - 新增自动 JSON/Markdown 报告和基于误报、漏报、定位、Replay、模型及契约结果的反馈建议。
+
+- 准确性闭环修正 Agent 指标口径：安全回退不再计为模型输出契约成功，并新增有效结果率；
+- Agent 契约允许引用真实 CPU/内存等指标百分比，仅禁止根因概率和置信度百分比，避免正确 OOM 结论被过度校验拒绝；
+- Schema repair 错误反馈增加字段路径，便于模型精确修复失败字段。

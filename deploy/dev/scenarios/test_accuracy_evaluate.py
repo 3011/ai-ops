@@ -31,12 +31,15 @@ class ScoreTruthTests(unittest.TestCase):
         results = [{
             "kind": "trusted", "status": "EVALUATED", "target_pass": True, "replay_pass": True,
             "required_any_pass": True, "finding_score": {"tp": 1, "fp": 0, "fn": 0, "tn": 1},
-            "agent": {"expected": True, "validation_status": "VALID", "model_available": True,
-                      "parent_fact_overlap": 1.0, "unsupported_hypothesis_rate": 0.0},
+            "agent": {"expected": True, "safe_validation": True, "model_output_accepted": True,
+                      "useful_output": True, "model_available": True, "parent_fact_overlap": 1.0,
+                      "unsupported_hypothesis_rate": 0.0},
         }]
         summary = module.aggregate(results, suite)
         self.assertTrue(summary["pass"])
         self.assertEqual(summary["scenario_requirement_rate"], 1.0)
+        self.assertEqual(summary["agent_model_output_acceptance_rate"], 1.0)
+        self.assertEqual(summary["agent_useful_result_rate"], 1.0)
 
 
 if __name__ == "__main__":

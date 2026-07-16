@@ -135,15 +135,50 @@ def evaluate_scenario(client: ApiClient, scenario: dict[str, Any], incidents: li
     replay = run.get("replay_snapshot") or {}
     replay_ok = replay.get("validation_status") in (scenario.get("required_replay_status") or [])
 
-    children = [child for child in runs if child.get("parent_run_id") == run.get("id") and child.get("run_kind") == "agent_shadow"]
+    children = [
+        child for child in runs
+        if child.get("parent_run_id") == run.get("id")
+        and child.get("run_kind") in {"agent_shadow", "agent_offline"}
+    ]
     agent = max(children, key=lambda value: int(value.get("id") or 0), default=None)
     agent_ready = not scenario.get("agent_expected") or bool(agent and agent.get("status") in TERMINAL)
     agent_summary: dict[str, Any] = {"expected": bool(scenario.get("agent_expected")), "present": bool(agent)}
     if agent:
         evaluation = agent.get("evaluation") or {}
         metrics = evaluation.get("metrics") or {}
+        diagnosis = agent.get("diagnosis") or {}
+        validated = diagnosis.get("validated_output") or {}
+        hypotheses = diagnosis.get("hypotheses") or []
+        degradation = set(agent.get("degradation_reasons") or [])
+        summary_text = str(diagnosis.get("summary") or "")
+        contract_failure = (
+            agent.get("status") == "FAILED"
+            or "AGENT_OUTPUT_CONTRACT_FAILED" in degradation
+            or validated.get("agent_error_kind") == "output_contract"
+        )
+        fallback_output = (
+            "未获得可通过契约校验的最终输出" in summary_text
+            or "模型未在受控步骤内返回最终 Diagnosis" in " ".join(diagnosis.get("missing_evidence") or [])
+        )
+        model_output_accepted = (
+            agent.get("status") in {"COMPLETED", "COMPLETED_PARTIAL"}
+            and not contract_failure
+            and not fallback_output
+        )
+        strong = [item for item in hypotheses if item.get("support_level") in {"highly_supported", "partially_supported"}]
+        terms = [str(term).casefold() for term in scenario.get("negative_signal_terms") or []]
+        false_signal_strong = [
+            item for item in strong
+            if any(term in str(item.get("statement") or "").casefold() for term in terms)
+        ]
+        positive_scenario = any(bool(value) for value in (scenario.get("finding_truth") or {}).values())
+        useful_output = (
+            model_output_accepted
+            and ((positive_scenario and bool(strong)) or (not positive_scenario and not false_signal_strong))
+        )
         agent_summary.update({
             "run_id": agent.get("id"),
+            "run_kind": agent.get("run_kind"),
             "status": agent.get("status"),
             "validation_status": agent.get("agent_validation_status"),
             "evaluation_status": evaluation.get("status"),
@@ -151,8 +186,15 @@ def evaluate_scenario(client: ApiClient, scenario: dict[str, Any], incidents: li
             "parent_fact_overlap": metrics.get("parent_fact_overlap"),
             "unsupported_hypothesis_rate": metrics.get("unsupported_hypothesis_rate"),
             "contradiction_check_rate": metrics.get("contradiction_check_rate"),
-            "hypotheses": metrics.get("hypotheses"),
-            "degradation_reasons": agent.get("degradation_reasons") or [],
+            "hypotheses": len(hypotheses),
+            "strong_hypotheses": len(strong),
+            "false_signal_strong_hypotheses": [item.get("statement") for item in false_signal_strong],
+            "safe_validation": agent.get("agent_validation_status") in {"VALID", "VALID_WITH_WARNINGS"},
+            "model_output_accepted": model_output_accepted,
+            "useful_output": useful_output,
+            "fallback_output": fallback_output,
+            "contract_failure": contract_failure,
+            "degradation_reasons": sorted(degradation),
             "stop_reason": agent.get("stop_reason"),
         })
 
@@ -183,7 +225,9 @@ def aggregate(results: list[dict[str, Any]], suite: dict[str, Any]) -> dict[str,
     target_accuracy = ratio(sum(bool(item.get("target_pass")) for item in trusted), len(trusted), empty=0.0)
     replay_rate = ratio(sum(bool(item.get("replay_pass")) for item in trusted), len(trusted), empty=0.0)
     agents = [item.get("agent") or {} for item in trusted if (item.get("agent") or {}).get("expected")]
-    agent_contract_rate = ratio(sum(agent.get("validation_status") in {"VALID", "VALID_WITH_WARNINGS"} for agent in agents), len(agents), empty=0.0)
+    agent_safe_validation_rate = ratio(sum(agent.get("safe_validation") is True for agent in agents), len(agents), empty=0.0)
+    agent_output_acceptance_rate = ratio(sum(agent.get("model_output_accepted") is True for agent in agents), len(agents), empty=0.0)
+    agent_useful_result_rate = ratio(sum(agent.get("useful_output") is True for agent in agents), len(agents), empty=0.0)
     model_availability_rate = ratio(sum(agent.get("model_available") is True for agent in agents), len(agents), empty=0.0)
     parent_overlap_values = [agent.get("parent_fact_overlap") for agent in agents if isinstance(agent.get("parent_fact_overlap"), (int, float))]
     parent_overlap_rate = ratio(sum(value == 1.0 for value in parent_overlap_values), len(parent_overlap_values), empty=0.0)
@@ -198,6 +242,8 @@ def aggregate(results: list[dict[str, Any]], suite: dict[str, Any]) -> dict[str,
         "replay_integrity": replay_rate == 1.0,
         "scenario_requirements": scenario_requirement_rate == 1.0,
         "agent_parent_fact_overlap": parent_overlap_rate >= gates.get("parent_fact_overlap_min", 1.0),
+        "agent_model_output_acceptance": agent_output_acceptance_rate >= gates.get("agent_model_output_acceptance_min", 0.80),
+        "agent_useful_results": agent_useful_result_rate >= gates.get("agent_useful_result_min", 0.80),
         "unsupported_hypotheses": unsupported_rate <= gates.get("unsupported_hypothesis_rate_max", 0.0),
     }
     return {
@@ -206,7 +252,10 @@ def aggregate(results: list[dict[str, Any]], suite: dict[str, Any]) -> dict[str,
         "finding_recall": recall,
         "target_accuracy": target_accuracy,
         "replay_integrity_rate": replay_rate,
-        "agent_contract_rate": agent_contract_rate,
+        "agent_safe_validation_rate": agent_safe_validation_rate,
+        "agent_contract_rate": agent_output_acceptance_rate,
+        "agent_model_output_acceptance_rate": agent_output_acceptance_rate,
+        "agent_useful_result_rate": agent_useful_result_rate,
         "model_availability_rate": model_availability_rate,
         "agent_parent_fact_overlap_rate": parent_overlap_rate,
         "max_unsupported_hypothesis_rate": unsupported_rate,
@@ -237,10 +286,17 @@ def feedback(results: list[dict[str, Any]], summary: dict[str, Any]) -> list[dic
         if agent.get("expected") and agent.get("present"):
             if agent.get("model_available") is False:
                 items.append({"priority": "P1", "scenario": result["id"], "action": "提高模型可用性：重试、退避、超时分层或供应商回退。"})
-            if agent.get("validation_status") not in {"VALID", "VALID_WITH_WARNINGS"}:
-                items.append({"priority": "P1", "scenario": result["id"], "action": f"提高 Agent 契约通过率；当前 {agent.get('validation_status') or agent.get('stop_reason')}。"})
+            if not agent.get("safe_validation"):
+                items.append({"priority": "P0", "scenario": result["id"], "action": f"修复 Agent 安全校验；当前 {agent.get('validation_status') or agent.get('stop_reason')}。"})
+            if not agent.get("model_output_accepted"):
+                reason = "输出契约失败" if agent.get("contract_failure") else "未在受控步骤内形成最终输出"
+                items.append({"priority": "P1", "scenario": result["id"], "action": f"提高 Agent 模型输出接受率：{reason}。"})
+            elif not agent.get("useful_output"):
+                items.append({"priority": "P1", "scenario": result["id"], "action": "Agent 输出安全但未形成符合场景期望的有效假设或安全弃权。"})
             if isinstance(agent.get("unsupported_hypothesis_rate"), (int, float)) and agent["unsupported_hypothesis_rate"] > 0:
                 items.append({"priority": "P0", "scenario": result["id"], "action": "消除无 Finding 支持的 Agent 假设。"})
+        if result.get("kind") == "trusted" and result.get("actual_findings") and result.get("id", "").endswith("negative-control") and "rollout_preceded_incident" in result.get("actual_findings", []):
+            items.append({"priority": "P2", "scenario": result["id"], "action": "负对照在创建后立即告警，混入了真实 rollout 关联；后续使用预热基线资源以获得更纯净的负样本。"})
         if result.get("kind") == "coverage" and result.get("known_gap"):
             priority = "P1" if result.get("status") == "COVERED_LEGACY" else "P0"
             items.append({"priority": priority, "scenario": result["id"], "action": result["known_gap"] + " 下一步应增加受控工具、Parser、Finding 和正负样本。"})
@@ -268,7 +324,9 @@ def write_report(report: dict[str, Any], directory: Path) -> tuple[Path, Path]:
         f"| Finding Recall | {s['finding_recall']:.2%} |",
         f"| Target Accuracy | {s['target_accuracy']:.2%} |",
         f"| Replay Integrity | {s['replay_integrity_rate']:.2%} |",
-        f"| Agent Contract Rate | {s['agent_contract_rate']:.2%} |",
+        f"| Agent Safe Validation | {s['agent_safe_validation_rate']:.2%} |",
+        f"| Agent Model Output Acceptance | {s['agent_model_output_acceptance_rate']:.2%} |",
+        f"| Agent Useful Result Rate | {s['agent_useful_result_rate']:.2%} |",
         f"| Agent Parent Fact Overlap | {s['agent_parent_fact_overlap_rate']:.2%} |",
         f"| Model Availability | {s['model_availability_rate']:.2%} |",
         f"| Scenario Requirement Rate | {s['scenario_requirement_rate']:.2%} |",

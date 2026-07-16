@@ -261,6 +261,21 @@ class AgentContractTests(unittest.IsolatedAsyncioTestCase):
                 fact_refs=["F-cpu"], rationale="evidence",
             )
 
+    def test_metric_percentages_are_allowed_but_probability_estimates_are_rejected(self) -> None:
+        diagnosis = AgentDiagnosisOutput(summary="容器内存峰值达到 limit 的 98.5%。", fact_refs=[])
+        self.assertIn("98.5%", diagnosis.summary)
+        hypothesis = AgentHypothesis(
+            id="H-metric", statement="CPU throttling 与性能风险相关。",
+            support_level="partially_supported", fact_refs=["F-cpu"],
+            rationale="CPU 使用率达到 limit 的 100%，且 periods ratio 为 42%。",
+        )
+        self.assertIn("100%", hypothesis.rationale)
+        with self.assertRaises(ValidationError):
+            AgentHypothesis(
+                id="H-probability", statement="80% 的概率由发布引起",
+                support_level="partially_supported", fact_refs=["F-cpu"], rationale="evidence",
+            )
+
     def test_untrusted_incident_instruction_is_removed_from_prompt_context(self) -> None:
         poisoned = context().model_copy(update={
             "incident_summary": {
