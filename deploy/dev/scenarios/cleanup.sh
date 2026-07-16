@@ -9,6 +9,7 @@ kubectl delete -f "$ROOT/deploy/dev/scenarios/oom.yaml" --ignore-not-found
 kubectl delete -f "$ROOT/deploy/dev/scenarios/oom-sampled.yaml" --ignore-not-found
 kubectl delete -f "$ROOT/deploy/dev/scenarios/gate3-app.yaml" --ignore-not-found
 kubectl delete -f "$ROOT/deploy/dev/scenarios/cpu-spike.yaml" --ignore-not-found
+kubectl delete -f "$ROOT/deploy/dev/scenarios/negative-controls.yaml" --ignore-not-found
 kubectl delete -f "$ROOT/deploy/dev/scenarios/rollout-change.yaml" --ignore-not-found
 kubectl delete -f "$ROOT/deploy/dev/scenarios/trace-mock.yaml" --ignore-not-found
 scenario_curl -fsS -X PUT "$API/settings/traces" -H 'Content-Type: application/json' \

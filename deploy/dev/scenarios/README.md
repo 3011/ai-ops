@@ -23,3 +23,13 @@ bash deploy/dev/scenarios/cleanup.sh
 ```
 
 `cleanup.sh` 会删除所有测试工作负载、停用 Trace mock，但保留数据库中的测试事件与证据，便于回归审计。
+
+## Ground Truth 准确性闭环
+
+核心准确性回归使用真实 OOM、采样 OOM、CPU Spike、CrashLoop，以及 OOM/CPU 负对照，输出 Finding Precision/Recall、目标定位、Replay 和 Agent 效果报告：
+
+```bash
+bash /root/aiops-console/deploy/dev/scenarios/run_accuracy_loop.sh
+```
+
+规范和指标定义见 `docs/ACCURACY_LOOP.md`。

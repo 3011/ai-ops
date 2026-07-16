@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-oom-negative
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-oom-negative
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-oom-negative
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-oom-negative
+        app.kubernetes.io/name: aiops-scenario-oom-negative
+        aiops_test: "true"
+    spec:
+      containers:
+        - name: steady-memory
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args: ["echo stable-memory-negative-control; while true; do sleep 30; done"]
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 64Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-scenario-cpu-negative
+  namespace: aiops-dev
+  labels:
+    app: aiops-scenario-cpu-negative
+    aiops_test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-scenario-cpu-negative
+  template:
+    metadata:
+      labels:
+        app: aiops-scenario-cpu-negative
+        app.kubernetes.io/name: aiops-scenario-cpu-negative
+        aiops_test: "true"
+    spec:
+      containers:
+        - name: idle
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args: ["echo idle-cpu-negative-control; while true; do sleep 30; done"]
+          resources:
+            requests: {cpu: 25m, memory: 8Mi}
+            limits: {cpu: 200m, memory: 32Mi}

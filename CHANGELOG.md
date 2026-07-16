@@ -147,3 +147,9 @@
 - Alertmanager webhook 可靠接入；
 - 告警实例、事件和 Outbox Worker；
 - firing/resolved 生命周期与幂等处理。
+
+### 0.9.0 accuracy-loop tooling
+
+- 新增隔离 Ground Truth 场景闭环，覆盖 OOM、采样 OOM、CPU Spike、CrashLoop 与 OOM/CPU 负对照；
+- 新增 Finding Precision/Recall、目标定位准确率、Replay 完整性和 Agent Shadow 效果评估；
+- 新增自动 JSON/Markdown 报告和基于误报、漏报、定位、Replay、模型及契约结果的反馈建议。

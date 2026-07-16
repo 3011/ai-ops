@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "suite": "core-accuracy-v1",
+  "description": "AIOps deterministic findings, target resolution, replay and Agent Shadow accuracy suite.",
+  "gates": {
+    "finding_precision_min": 0.99,
+    "finding_recall_min": 0.90,
+    "target_accuracy_min": 0.99,
+    "unsupported_hypothesis_rate_max": 0.0,
+    "parent_fact_overlap_min": 1.0
+  },
+  "scenarios": [
+    {
+      "id": "oom-killed",
+      "title_contains": "AIOps 自动分析 OOMKilled 场景测试",
+      "kind": "trusted",
+      "engine": "deterministic_oom_v2",
+      "target": {"namespace": "aiops-dev", "service": "aiops-scenario-oom", "container": "memory-eater"},
+      "finding_truth": {"container_oom_killed": true},
+      "required_replay_status": ["VALID", "VALID_WITH_WARNINGS"],
+      "agent_expected": true
+    },
+    {
+      "id": "oom-sampled",
+      "title_contains": "AIOps OOMKilled 内存采样场景测试",
+      "kind": "trusted",
+      "engine": "deterministic_oom_v2",
+      "target": {"namespace": "aiops-dev", "service": "aiops-scenario-oom-sampled", "container": "memory-eater"},
+      "finding_truth": {"container_oom_killed": true},
+      "required_any_findings": ["memory_usage_increased", "memory_near_limit", "memory_limit_reached"],
+      "required_replay_status": ["VALID", "VALID_WITH_WARNINGS"],
+      "agent_expected": true
+    },
+    {
+      "id": "cpu-spike",
+      "title_contains": "AIOps 可信 CPU Spike 场景测试",
+      "kind": "trusted",
+      "engine": "deterministic_cpu_v1",
+      "target": {"namespace": "aiops-dev", "service": "aiops-scenario-cpu", "container": "cpu-burner"},
+      "finding_truth": {"container_cpu_spike": true, "cpu_request_saturated": true},
+      "required_replay_status": ["VALID", "VALID_WITH_WARNINGS"],
+      "agent_expected": true
+    },
+    {
+      "id": "oom-negative-control",
+      "title_contains": "AIOps OOMKilled 负对照场景",
+      "kind": "trusted",
+      "engine": "deterministic_oom_v2",
+      "scenario_run_label": true,
+      "target": {"namespace": "aiops-dev", "service": "aiops-scenario-oom-negative", "container": "steady-memory"},
+      "finding_truth": {"container_oom_killed": false},
+      "required_replay_status": ["VALID", "VALID_WITH_WARNINGS"],
+      "agent_expected": true
+    },
+    {
+      "id": "cpu-negative-control",
+      "title_contains": "AIOps High CPU 负对照场景",
+      "kind": "trusted",
+      "engine": "deterministic_cpu_v1",
+      "scenario_run_label": true,
+      "target": {"namespace": "aiops-dev", "service": "aiops-scenario-cpu-negative", "container": "idle"},
+      "finding_truth": {
+        "container_cpu_spike": false,
+        "cpu_request_saturated": false,
+        "cpu_near_limit": false
+      },
+      "required_replay_status": ["VALID", "VALID_WITH_WARNINGS"],
+      "agent_expected": true
+    },
+    {
+      "id": "crashloop-coverage",
+      "title_contains": "AIOps 自动分析 CrashLoop 场景测试",
+      "kind": "coverage",
+      "trusted_engine_expected": false,
+      "legacy_required_strings": ["BackOff"],
+      "known_gap": "CrashLoop 当前只有通用证据分析，没有确定性 Finding 引擎。"
+    }
+  ]
+}
