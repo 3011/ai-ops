@@ -1,18 +1,28 @@
 {
-  "snapshot_at": "2026-07-15T22:49:03+08:00",
+  "snapshot_at": "2026-07-16T02:36:32+02:00",
+  "timezone": "Europe/Amsterdam",
   "project": "Work's K8s / AIOps Console",
   "repository": "git@github.com:3011/ai-ops.git",
+  "release_status": {
+    "version": "0.9.0",
+    "status": "released_and_deployed",
+    "branch": "release/0.9.0",
+    "deployed_application_commit": "8450382d8b666341075491c2034b7b856efd39ef",
+    "release_tag": "v0.9.0",
+    "release_tag_commit": "8450382d8b666341075491c2034b7b856efd39ef",
+    "branch_head_note": "The branch contains or may contain one newer docs-only final handoff commit; the deployed application and v0.9.0 remain on the application commit.",
+    "next_version": "TBD"
+  },
   "branches": {
     "stable": {
       "name": "main",
       "commit": "3f5e96c14030c1bfa7b67cadc293f00e55acfb09",
       "version": "0.8.1"
     },
-    "development": {
+    "release": {
       "name": "release/0.9.0",
-      "version": "0.9.0-dev.4",
-      "deployed_application_commit": "8f785abb75d20e11c4273d4f3098a0acb152befc",
-      "branch_head_note": "The release branch may contain one newer docs-only handoff commit; use git rev-parse HEAD."
+      "version": "0.9.0",
+      "deployed_application_commit": "8450382d8b666341075491c2034b7b856efd39ef"
     }
   },
   "paths": {
@@ -23,15 +33,20 @@
   "endpoints": {
     "web": "http://172.30.10.11:30300",
     "api": "http://172.30.10.11:30801",
-    "api_docs": "http://172.30.10.11:30801/docs"
+    "api_docs": "http://172.30.10.11:30801/docs",
+    "health": "http://172.30.10.11:30801/healthz",
+    "readiness": "http://172.30.10.11:30801/readyz"
   },
   "runtime": {
-    "components": [
-      "aiops-api",
-      "aiops-worker",
-      "aiops-web",
-      "postgresql-0"
-    ],
+    "app_version": "0.9.0",
+    "git_commit": "8450382d8b666341075491c2034b7b856efd39ef",
+    "investigation_mode": "shadow",
+    "components": {
+      "aiops-api": "1/1 Running",
+      "aiops-worker": "1/1 Running",
+      "aiops-web": "1/1 Running",
+      "postgresql-0": "1/1 Running"
+    },
     "model": {
       "provider": "openai-compatible",
       "base_url": "https://api.deepseek.com",
@@ -44,30 +59,115 @@
       "enabled": false,
       "configured": false
     },
-    "pending_jobs": 0,
-    "dead_jobs": 0,
-    "temporary_test_resources": 0
+    "queues": {
+      "pending": 0,
+      "retry": 0,
+      "processing": 0,
+      "dead": 0,
+      "succeeded": 79,
+      "skipped": 17
+    },
+    "temporary_test_pods": 0,
+    "non_running_pods": 0
   },
   "database_state": {
     "users": 2,
     "roles": 4,
     "permissions": 11,
     "incidents": {
-      "resolved": 17
+      "resolved": 30
     },
-    "change_events": 4,
-    "outbox_jobs": {
-      "succeeded": 39,
-      "skipped": 8
-    },
+    "change_events": 14,
     "trusted_runs": {
-      "COMPLETED_PARTIAL": 15
+      "deterministic": {
+        "COMPLETED_PARTIAL": 34
+      },
+      "agent_offline": {
+        "COMPLETED": 2
+      },
+      "agent_shadow": {
+        "COMPLETED_PARTIAL": 13,
+        "FAILED": 8
+      }
     },
-    "replay_schema_1_1": {
-      "VALID": 12,
-      "VALID_WITH_WARNINGS": 2,
-      "INVALID": 1
+    "model_invocations": {
+      "SUCCEEDED": 169
+    },
+    "replay_snapshots": {
+      "1.1.0": {
+        "VALID": 12,
+        "VALID_WITH_WARNINGS": 2,
+        "INVALID": 1
+      },
+      "1.2.0": {
+        "VALID": 31,
+        "VALID_WITH_WARNINGS": 10,
+        "INVALID": 1
+      }
+    },
+    "agent_evaluations_0_9_0": {
+      "PASS": 10,
+      "EFFECTIVENESS_WARNING": 13,
+      "FAIL": 0
     }
+  },
+  "agent_release_evaluation": {
+    "suite_version": "0.9.0",
+    "sample_size": 23,
+    "status": "PASS",
+    "metrics": {
+      "safety_pass_rate": 1.0,
+      "oom_hard_fact_consistency_rate": 1.0,
+      "target_identity_match_rate": 1.0,
+      "unsupported_hypothesis_rate": 0.0,
+      "useful_tool_call_rate": 0.8958333333333334,
+      "duplicate_tool_call_rate": 0.018055555555555557,
+      "contradiction_check_rate": 0.9057971014492753,
+      "budget_exhaustion_rate": 0.0,
+      "model_availability_rate": 0.6521739130434783
+    },
+    "all_release_gates_passed": true,
+    "status_counts": {
+      "PASS": 10,
+      "EFFECTIVENESS_WARNING": 13,
+      "FAIL": 0
+    }
+  },
+  "authentication_release_validation": {
+    "wrong_password_status": 401,
+    "cache_control": "no-store",
+    "stale_session_cookie_cleared": true,
+    "me_before_failed_login_status": 200,
+    "me_after_failed_login_status": 401,
+    "unknown_user_runs_password_verifier": true,
+    "failed_login_is_audited": true,
+    "ui": [
+      "responsive two-panel login",
+      "inline error alert",
+      "clear and refocus password after failure",
+      "caps-lock warning",
+      "pending-submit protection",
+      "dynamic app version and environment"
+    ]
+  },
+  "test_baseline": {
+    "local_unittest_discover": {
+      "total": 98,
+      "passed": 74,
+      "skipped_isolated_postgresql": 24
+    },
+    "isolated_postgresql_docker_network": {
+      "passed": 65,
+      "skipped": 0
+    },
+    "focused_auth_tests": {
+      "passed": 4
+    },
+    "frontend_production_build": "PASS",
+    "python_compileall": "PASS",
+    "kubernetes_yaml_client_dry_run": "PASS",
+    "live_auth_session_regression": "PASS",
+    "historical_kubernetes_scenarios": "PASS"
   },
   "trusted_tools": [
     {
@@ -116,49 +216,12 @@
       "cost_units": 4
     }
   ],
-  "replay_baseline": {
-    "run_1": {
-      "status": "INVALID",
-      "source_mode": "historical_reconstructed",
-      "legacy_contract_violation": true,
-      "error": "TOOL_FINDING_REF_MISMATCH",
-      "must_remain_invalid": true
-    },
-    "run_2": {
-      "status": "VALID",
-      "source_mode": "historical_reconstructed"
-    },
-    "run_4": {
-      "status": "VALID",
-      "source_mode": "historical_reconstructed"
-    },
-    "run_13": {
-      "status": "VALID_WITH_WARNINGS",
-      "source_mode": "historical_reconstructed",
-      "warning": "TARGET_UNRESOLVED"
-    },
-    "run_16": {
-      "status": "VALID_WITH_WARNINGS",
-      "source_mode": "native_frozen",
-      "warning": "TARGET_UNRESOLVED"
-    }
-  },
-  "next_release": {
-    "version": "0.9.0-dev.5",
-    "scope": [
-      "InvestigationAgent Protocol",
-      "Agent input and output contracts",
-      "investigation_model_invocations audit table",
-      "request and response Artifact audit"
-    ],
-    "explicitly_out_of_scope": [
-      "real-time Agent execution",
-      "PydanticAI tool loop in Worker",
-      "Agent Shadow Run",
-      "replacement of deterministic Diagnosis",
-      "free PromQL or LogQL",
-      "automatic remediation"
-    ]
+  "historical_invariants": {
+    "run_1_must_remain_invalid": true,
+    "run_1_reason": "TOOL_FINDING_REF_MISMATCH / legacy contract violation",
+    "snapshot_1_2_historical_invalid_count": 1,
+    "trace_backend_available": false,
+    "deterministic_findings_are_hard_fact_authority": true
   },
   "secrets_policy": {
     "contains_secret_values": false,
@@ -168,7 +231,8 @@
       "release webhook token",
       "session secret",
       "settings encryption key",
-      "database password"
+      "database password",
+      "session cookie or bearer token"
     ]
   }
 }

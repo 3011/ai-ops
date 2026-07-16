@@ -1,11 +1,11 @@
 # AIOps Console Agent 交接手册
 
-> 交接快照时间：2026-07-15 22:49:03 +08:00  
-> 项目：Work's K8s / AIOps Console  
-> 当前开发版本：`0.9.0-dev.4`  
-> 当前开发分支：`release/0.9.0`  
-> 当前部署的应用基线 Commit：`8f785abb75d20e11c4273d4f3098a0acb152befc`  
-> 本交接文档提交后，分支 HEAD 会多一笔 docs-only Commit；以 `git log -1` 为准
+> 交接快照时间：2026-07-16 02:36:32 +02:00（Europe/Amsterdam）
+> 项目：Work's K8s / AIOps Console
+> 当前发布版本：`0.9.0`
+> 发布分支：`release/0.9.0`
+> 当前部署与 `v0.9.0` 应用 Commit：`8450382d8b666341075491c2034b7b856efd39ef`
+> 分支 HEAD 在本文件提交后会多一笔 docs-only Commit；应用基线与 Tag 仍以上述 Commit 为准
 
 本文档是后续 Agent 的首要上下文。开始任何修改前，先阅读本文件、`README.md`、`CHANGELOG.md`，再检查实时集群状态。不要仅依赖聊天历史。
 
@@ -33,8 +33,10 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://172.30.10.11:30300
 
 ```text
 本地分支：release/0.9.0
-本地/远端 HEAD：8f785abb75d20e11c4273d4f3098a0acb152befc
-API 版本：0.9.0-dev.4
+部署应用 Commit / v0.9.0：8450382d8b666341075491c2034b7b856efd39ef
+分支 HEAD：可能仅比应用 Commit 多一笔 docs-only 最终交接提交
+API 版本：0.9.0
+INVESTIGATION_MODE：shadow
 API、Worker、Web、PostgreSQL：1/1 Running
 healthz：ok
 readyz：ready
@@ -59,11 +61,11 @@ Repository：https://github.com/3011/ai-ops
 
 ```text
 main / origin/main：3f5e96c（0.8.1 稳定基线）
-release/0.9.0 应用基线：8f785ab（0.9.0-dev.4）
-release/0.9.0 分支 HEAD：可能比应用基线多一笔 docs-only 交接提交
+release/0.9.0 部署应用与 v0.9.0：8450382（0.9.0）
+release/0.9.0 分支 HEAD：可能仅比应用基线多一笔 docs-only 最终交接提交
 ```
 
-不要把 `release/0.9.0` 未完成的 Agent 代码提前合并到 `main`。
+`release/0.9.0` 已完成并部署；是否合并到 `main` 由项目负责人按发布流程决定，不要在未核对 live 状态和回归结果时直接改写稳定分支。
 
 ### 2.2 开发与部署拓扑
 
@@ -100,7 +102,7 @@ API 和 Worker Deployment 使用 `Recreate`。命名空间 ResourceQuota 较紧�
 
 ### 2.4 当前 live 状态
 
-最后核验：2026-07-15 22:49 +08:00。
+最后核验：2026-07-16 02:36 +02:00（Europe/Amsterdam）。
 
 ```text
 aiops-api       1/1 Running
@@ -108,32 +110,35 @@ aiops-worker    1/1 Running
 aiops-web       1/1 Running
 postgresql-0    1/1 Running
 
-APP_VERSION：0.9.0-dev.4
-GIT_COMMIT：8f785abb75d20e11c4273d4f3098a0acb152befc
-模型：enabled=true
+APP_VERSION：0.9.0
+GIT_COMMIT：8450382d8b666341075491c2034b7b856efd39ef
+INVESTIGATION_MODE：shadow
+模型：enabled=true，openai-compatible / deepseek-v4-flash
 Trace：enabled=false，未配置真实 Tempo/Jaeger
-Pending jobs：0
+Pending / retry / processing jobs：0
 Dead jobs：0
-临时测试资源：0
+临时测试 Pod/资源：0
 ```
 
 数据库当前概要：
 
 ```text
 用户：2
-  admin（admin）
-  ljx（admin）
-
 角色：4
-  admin / operator / viewer（系统角色）
-  sss（自定义角色）
-
 权限：11
-事件：17，全部 resolved
-变更事件：4
-Outbox：succeeded 39，skipped 8
-可信调查 Run：15，全部 COMPLETED_PARTIAL
+事件：30，全部 resolved
+变更事件：14
+Outbox：succeeded 79，skipped 17；pending/retry/processing/dead 均为 0
+
+可信调查 Run：
+  deterministic：COMPLETED_PARTIAL 34
+  agent_offline：COMPLETED 2
+  agent_shadow：COMPLETED_PARTIAL 13，FAILED 8
+
+ModelInvocation：SUCCEEDED 169
 Snapshot 1.1.0：VALID 12，VALID_WITH_WARNINGS 2，INVALID 1
+Snapshot 1.2.0：VALID 31，VALID_WITH_WARNINGS 10，INVALID 1
+Agent Evaluation 0.9.0：PASS 10，EFFECTIVENESS_WARNING 13，FAIL 0；聚合状态 PASS
 ```
 
 不要删除 `ljx` 或自定义角色 `sss`，它们不是临时测试对象。
@@ -172,20 +177,22 @@ Incident
 → ToolRegistry / ToolRuntime
 → ToolExecution
 → DeterministicFinding
-→ DiagnosisResult
-→ Snapshot Replay
-→ Result Validator
+→ Deterministic DiagnosisResult
+→ Snapshot Replay / Result Validator
+→ 独立 Agent Shadow 或 Offline 子 Run
+→ Agent Validator / Evaluation / Comparison
 ```
 
 特点：
 
-- 不依赖模型确认事实；
+- 不依赖模型确认硬事实；
 - 目标固定到 Pod UID、Container、Workload UID 和时间窗口；
 - 所有事实引用真实 ToolExecution；
-- Agent 尚未启用；
-- 状态通常为 `COMPLETED_PARTIAL`，停止原因 `AGENT_NOT_ENABLED`。
+- Agent 已默认以 `shadow` 模式运行，使用独立子 Run、预算、Diagnosis 和校验；
+- Agent 失败或模型不可用不会改变确定性父 Run；
+- Offline Replay 只消费已保存 Snapshot，禁止访问实时数据源。
 
-未来 Agent 只能建立在第二条链路上，不允许直接复用旧 DeepSeek Prompt 作为 Agent Runtime。
+Agent Runtime 已建立在第二条链路上，仍禁止直接复用旧 DeepSeek Prompt、自由查询或写操作。
 
 ---
 
@@ -224,7 +231,7 @@ outbox_jobs          异步分析任务
 
 ### 4.3 用户、权限与审计
 
-认证：HttpOnly 签名 Cookie，会话默认 8 小时。密码使用 PBKDF2-HMAC-SHA256 加盐哈希。首次管理员凭据只存在 Kubernetes Secret。
+认证：HttpOnly 签名 Cookie，会话默认 8 小时。密码使用 PBKDF2-HMAC-SHA256 加盐哈希。首次管理员凭据只存在 Kubernetes Secret。错误密码统一返回不可缓存的 401，不暴露账号是否存在，主动清除浏览器旧会话 Cookie，并写入审计；前端会显示卡片内错误、清空并聚焦密码框。
 
 默认角色：
 
@@ -579,8 +586,8 @@ Run 16  native_frozen
 ### 7.5 API
 
 ```text
-GET  /api/v1/investigations/{run_id}/replay
-POST /api/v1/investigations/{run_id}/replay
+GET  /api/v1/investigations/{analysis_run_id}/replay
+POST /api/v1/investigations/{analysis_run_id}/replay
 POST /api/v1/investigations/replay-backfill
 ```
 
@@ -853,7 +860,8 @@ git push origin release/0.9.0
 
 ```text
 GitHub release/0.9.0 HEAD
-/root/aiops-console/.git HEAD
+v0.9.0 Tag
+/root/aiops-console 当前同步源码
 aiops-config GIT_COMMIT
 release_notes 当前版本 commit_sha
 ```
@@ -904,266 +912,29 @@ d921260  Sampled OOM scenario
 0d38740  Release note commit synchronization
 b4e9d1a  0.9 dev.3 Snapshot Replay and Validator
 8f785ab  0.9 dev.4 frozen Run input and legacy adapters
+204c7bc  0.9 Agent runtime, shadow, offline replay and evaluation baseline
+7067753  Model-unavailable evaluation semantics and release suite finalization
+6af06c2  Effective tool-call and counterevidence evaluation semantics
+8450382  Login UX redesign and failed-authentication session hardening
 ```
 
 `d921260` 前的空格只是本文排版；真实 Commit 为 `d921260`。
 
 ---
 
-## 15. 下一阶段：0.9.0-dev.5
+## 15. 0.9.0 最终完成状态
 
-当前立即任务不是实时 Agent，也不是 PydanticAI 工具循环，而是：
+本节是发布后的权威状态。旧 dev.5/dev.6/dev.7 阶段计划已经完成，不再是“下一步任务”。下一版本号与范围尚未决定，后续工作必须先由项目负责人定义。
 
-```text
-InvestigationAgent Protocol
-Agent 输入/输出契约
-investigation_model_invocations
-模型请求/响应 Artifact 审计
-```
-
-### 15.1 框架无关接口
-
-建议目录：
+### 15.1 已完成能力
 
 ```text
-backend/app/investigation/agents/
-├── protocol.py
-├── contracts.py
-├── prompts.py
-└── pydantic_ai_adapter.py       # dev.5 可先不实现，或仅空适配边界
-```
-
-除 adapter 文件外，禁止 import PydanticAI。
-
-接口：
-
-```python
-class InvestigationAgent(Protocol):
-    async def investigate(
-        self,
-        context: InvestigationContext,
-        tools: ToolRegistry,
-        budget: InvestigationBudget,
-    ) -> DiagnosisOutput:
-        ...
-```
-
-`InvestigationContext` 至少包含：
-
-```text
-analysis_run_id
-incident_summary
-target_context
-initial_finding_ids
-available_tools
-budget_snapshot
-investigation_mode: oom | cpu
-```
-
-### 15.2 输出契约
-
-```text
-DiagnosisOutput
-├── summary
-├── fact_refs
-├── hypotheses
-├── missing_evidence
-├── recommended_checks
-└── risk_notes
-```
-
-Hypothesis 支持等级只能是：
-
-```text
-highly_supported
-partially_supported
-insufficient_evidence
-contradicted
-```
-
-禁止：
-
-```text
-confirmed
-root_cause_confirmed
-概率百分比
-自由 PromQL / LogQL
-写操作
-```
-
-### 15.3 ModelInvocation 表
-
-建议新增迁移 `0008_model_invocation_audit.sql`：
-
-```text
-investigation_model_invocations
-id
-analysis_run_id
-sequence_number
-invocation_type
-runtime_name
-runtime_version
-provider
-model
-model_parameters_json
-prompt_version
-request_snapshot_uri
-request_hash
-response_snapshot_uri
-response_hash
-status
-input_tokens
-output_tokens
-latency_ms
-error_code
-error_message
-started_at
-completed_at
-```
-
-调用类型：
-
-```text
-investigation_step
-final_diagnosis
-schema_repair
-offline_replay
-```
-
-框架 Trace 不能代替业务审计表。
-
-### 15.4 dev.5 边界
-
-本提交仍不得：
-
-- 修改 Worker 实时调查流程；
-- 创建 Agent Shadow Run；
-- 让模型调用真实工具；
-- 替换确定性 Diagnosis；
-- 引入自由查询；
-- 把 Agent 结果展示给普通运维用户。
-
-验收重点：纯契约、数据库审计、Artifact 脱敏、模型失败审计、框架依赖隔离。
-
----
-
-## 16. 0.9.0 后续路线
-
-```text
-0.9.0-dev.5
-Agent Protocol + ModelInvocation audit
-
-0.9.0-dev.6
-Offline Snapshot Agent Replay + extended validator
-
-0.9.0-dev.7
-Independent real-time Agent Shadow Run + comparison UI
-
-0.9.0-rc.1
-OOM/CPU eval suite + security regression
-
-0.9.0
+Agent Protocol + ModelInvocation Artifact audit
+Offline Snapshot Agent Replay + Validator 1.2.0
+Independent real-time Agent Shadow + comparison UI
+OOM/CPU evaluation + security regression
 Default investigation_mode=shadow
-```
-
-### 16.1 离线 Agent Replay
-
-```text
-Snapshot
-→ Agent
-→ SnapshotToolRuntime
-→ 已保存 ToolResult
-→ DiagnosisOutput
-→ Agent Validator
-```
-
-Agent 请求快照中不存在的工具时，只返回 `SNAPSHOT_TOOL_NOT_AVAILABLE`，不得访问实时数据源。
-
-### 16.2 实时 Shadow
-
-确定性与 Agent 使用独立 Run：
-
-```text
-Run N   deterministic_cpu_v2
-Run N+1 agent_cpu_shadow_v1, parent_run_id=N
-```
-
-不要共享预算账本。Agent INVALID 时不得进入正式 DiagnosisResult。
-
-### 16.3 发布安全门槛
-
-```text
-越权工具调用：0
-未注册工具执行：0
-虚构 Finding 引用：0
-confirmed 假设：0
-日志 Prompt Injection 导致行为改变：0
-Unsupported Hypothesis Rate：0
-OOM 硬事实一致率：100%
-CPU 目标 Pod/Revision 一致率：>=95%
-模型不可用不影响确定性 Run
-离线 Replay 不访问外部数据源
-```
-
-行为目标：
-
-```text
-Useful Tool Call Rate >=60%
-Duplicate Tool Call Rate <=10%
-重要假设反证检查率 >=80%
-预算耗尽率 <=10%
-```
-
----
-
-## 17. 绝对不要做的事情
-
-- 不要直接让 Agent 进入实时 Worker。
-- 不要让模型决定 OOMKilled 或 CPU Spike 是否发生。
-- 不要修改 DeepSeek 旧 Prompt 代替 Agent Runtime。
-- 不要把 ToolStatus.UNAVAILABLE 写成“未发现异常”。
-- 不要把 rollout 时间相关性写成发布导致故障。
-- 不要让日志文本产生 confirmed Finding。
-- 不要开放自由 PromQL/LogQL。
-- 不要新增 Kubernetes 写权限或自动修复。
-- 不要读取或输出 Secret 明文。
-- 不要删除 Run 1 的真实 INVALID 历史。
-- 不要在开发数据库运行 drop_all 测试。
-- 不要在未核对 live 状态时重复执行 Pod 删除或部署。
-
----
-
-## 18. 交接完成定义
-
-新 Agent 在开始开发前应能回答：
-
-1. 旧 DeepSeek 分析和可信确定性调查有什么区别？
-2. 为什么 Agent 不能确认 OOMKilled？
-3. 九个工具在哪里注册？
-4. Tool Runtime 如何处理预算、缓存和 Artifact？
-5. Run input 为什么必须 `native_frozen`？
-6. 为什么 Run 1 必须保持 INVALID？
-7. 当前真实 Trace 后端是否存在？
-8. 如何在不暴露 Secret 的情况下部署？
-9. 为什么必须逐个重启 Pod？
-10. dev.5 为什么仍不允许实时 Agent？
-
-能准确回答后，再开始 `0.9.0-dev.5`。
-
----
-
-## 19. 0.9.0 最终完成状态（2026-07-15）
-
-本节取代第 15～18 节中针对 dev.5/dev.6/dev.7 的阶段性“禁止进入下一 Gate”说明。那些限制用于逐阶段开发；最终 0.9.0 已按独立 Shadow 架构完成，但下列永久安全边界仍然有效。
-
-### 19.1 已完成能力
-
-```text
-0.9.0-dev.5  Agent Protocol + ModelInvocation Artifact audit
-0.9.0-dev.6  Offline Snapshot Agent Replay + Validator 1.2.0
-0.9.0-dev.7  Independent real-time Agent Shadow + comparison UI
-0.9.0-rc.1   OOM/CPU eval + security regression
-0.9.0        investigation_mode=shadow
+Responsive login UI + failed-authentication session hardening
 ```
 
 新增持久化：
@@ -1181,65 +952,95 @@ investigation_agent_evaluations
 新增 API：
 
 ```text
-POST /api/v1/investigations/{run_id}/agent-replay
-POST /api/v1/investigations/{run_id}/agent-shadow
-GET  /api/v1/investigations/{run_id}/comparison
-POST /api/v1/investigations/{run_id}/evaluate
+POST /api/v1/investigations/{analysis_run_id}/agent-replay
+POST /api/v1/investigations/{analysis_run_id}/agent-shadow
+GET  /api/v1/investigations/{analysis_run_id}/comparison
+POST /api/v1/investigations/{analysis_run_id}/evaluate
 GET  /api/v1/investigation-evaluations/summary
 ```
 
-### 19.2 最终权威边界
+### 15.2 最终权威边界
 
 - 确定性 Run 和 Finding 仍是 OOMKilled、CPU Spike 等硬事实的唯一权威来源；
 - Agent 使用独立子 Run、独立预算和独立 Diagnosis，不覆盖父级；
-- 模型失败只使子 Run 失败，Worker 的确定性完成状态不变；
+- 模型失败只使子 Run失败，Worker 的确定性完成状态不变；
 - Agent Validator 为 `INVALID` 时不创建正式 `InvestigationDiagnosisResult`；
 - Offline Replay 只消费 Snapshot 的模型可见 ToolResult，外部数据源访问数必须为 0；
 - Agent 只能选择九个注册只读工具，不允许自由 PromQL/LogQL，也没有 Kubernetes 写权限；
 - 日志与告警文本始终是不可信输入，不能单独把假设提升为 `highly_supported`；
-- 模型请求/响应必须保存脱敏 Artifact、Hash 和业务审计；框架 Trace 不能替代该审计。
+- 模型请求/响应必须保存脱敏 Artifact、Hash 和业务审计；框架 Trace 不能替代该审计；
+- 登录失败不区分用户不存在、停用或密码错误，必须清除旧会话并记录审计。
 
-### 19.3 发布门槛
+### 15.3 发布评估结果
 
-安全门槛：
+Evaluation Suite：`0.9.0`，重算样本 23 个 Agent 子 Run，聚合状态 `PASS`。
 
 ```text
-未注册工具执行                     0
-虚构 Finding 引用                  0
-confirmed / 概率表达               0
-日志 Prompt Injection 行为改变     0
-Unsupported Hypothesis Rate        0
-OOM 硬事实一致率                  100%
-CPU Target Identity 一致率        >=95%
-模型失败影响父 Run                 0
-Offline Replay 外部数据源访问      0
+Safety Pass Rate                    100.00%
+OOM Hard Fact Consistency           100.00%
+CPU Target Identity Match           100.00%
+Unsupported Hypothesis Rate           0.00%
+Useful Tool Call Rate                89.58%  （门槛 >=60%）
+Duplicate Tool Call Rate              1.81%  （门槛 <=10%）
+重要假设反证检查率                    90.58%  （门槛 >=80%）
+预算耗尽率                             0.00%  （门槛 <=10%）
+Model Availability Rate              65.22%  （观测指标，不是安全失败门槛）
 ```
 
-效果目标：
+所有发布 Gate 均为 true：越权/未注册工具、虚构 Finding、confirmed 表达、Prompt Injection 行为改变、父 Run 被模型失败影响、Offline 外部访问均为 0。
+
+`EFFECTIVENESS_WARNING` 13 条主要来自历史模型不可用或旧输出质量，不是安全失败；保留用于真实模型可用性改进。`FAIL` 为 0。
+
+### 15.4 登录修复验收
 
 ```text
-Useful Tool Call Rate             >=60%
-Duplicate Tool Call Rate          <=10%
-重要假设反证检查率                 >=80%
-预算耗尽率                         <=10%
+有效签名会话调用 /auth/me：200
+携带有效旧会话提交错误密码：401
+错误响应 Cache-Control：no-store
+错误响应清除 aiops_session：是（Max-Age=0、HttpOnly）
+清除后再次调用 /auth/me：401
+未知用户名执行同等密码哈希校验路径：是
+错误登录安全审计：已记录
 ```
 
-### 19.4 测试基线
+前端登录页已完成响应式双栏设计、能力概览、卡片内错误提示、错误后密码清空与自动聚焦、大写锁定提示、提交中防重复操作，以及动态版本/环境标识。
+
+### 15.5 测试基线
 
 ```text
-后端 unittest：88 / 88 PASS（隔离 PostgreSQL）
+后端本地 discover：共 98 项，74 PASS，24 个隔离 PostgreSQL 用例按环境变量跳过
+独立 Docker Network + PostgreSQL 17：65 PASS，0 skip
+认证路由专项：4 PASS
 前端 npm run build：PASS
 Python compileall：PASS
-SQLAlchemy PostgreSQL DDL：PASS
-FastAPI OpenAPI：PASS
+Kubernetes YAML client dry-run：PASS
+真实 K8s 登录会话回归：PASS
+历史全场景回归：PASS
 ```
 
-### 19.5 永久禁止事项
+隔离 PostgreSQL 测试必须使用独立数据库；测试会执行 `drop_all/create_all`，严禁指向开发数据库。
+
+### 15.6 历史异常与保留证据
+
+- Run 1 的旧 ToolResult/Finding 契约不一致是真实历史 `INVALID`，必须保留；
+- Snapshot 1.2.0 的一个 `INVALID` 是修复前的历史回归证据；修复后的正式 Offline/Shadow Run 已为 `VALID`；
+- `VALID_WITH_WARNINGS` 主要来自目标未解析或历史降级，不得通过篡改历史数据“修绿”；
+- Trace 当前关闭且未配置真实 Tempo/Jaeger，不能声称 Trace 已可用。
+
+### 15.7 永久禁止事项
 
 - 不得让 Agent 改写确定性 Finding 或父级 Diagnosis；
 - 不得让模型确认 OOMKilled、CPU Spike 或具体代码根因；
 - 不得开放自由 PromQL、LogQL 或任意查询表达式；
 - 不得加入 Kubernetes 写工具、自动修复、自动扩缩容或删除/重启操作；
 - 不得把 `UNAVAILABLE` 解释为没有异常；
-- 不得删除 Run 1 的真实 legacy INVALID；
-- 不得输出 Secret、模型 Key、密码、Token 或数据库凭据。
+- 不得删除 Run 1 或其他真实历史 INVALID；
+- 不得输出 Secret、模型 Key、密码、Token 或数据库凭据；
+- 不得在开发数据库运行破坏性测试；
+- 不得把静态 UI 文案当成后端健康探针，健康状态以 `/healthz`、`/readyz` 和 Pod Ready 为准。
+
+### 15.8 下一位 Agent 接管检查
+
+接管时依次确认：Git 分支/Tag、ConfigMap Commit、Pod Ready、API health/ready、Web 200、队列无 pending/dead、Evaluation summary 为 PASS。发现差异时先调查，不要重复部署或删除历史数据。
+
+下一版本：`TBD`。在没有明确需求前，不要自行扩展 Agent 权限、工具范围或自动化修复能力。

@@ -220,6 +220,8 @@ ssh k8s 'kubectl get secret aiops-secrets -n aiops-dev -o jsonpath="{.data.BOOTS
 
 用户、角色、权限和审计位于前端 `平台治理 → 用户与权限`。后端对每个 API 权限做强制校验，前端菜单隐藏不是安全边界。
 
+错误密码登录统一返回不可缓存的 `401`，不会区分账号不存在、停用或密码错误；服务端会清除旧会话 Cookie 并写入审计。登录页会在表单内显示错误、清空并重新聚焦密码框，并提示大写锁定状态。
+
 ## 版本记录
 
 版本说明位于 `平台治理 → 版本说明`。系统启动时会自动登记当前版本，并补录 0.1～0.6 的历史里程碑。管理员也可以在页面新增版本记录。
@@ -289,11 +291,11 @@ kubectl logs -n aiops-dev deployment/aiops-web -f
 - 不执行自动修复、删除、重启、扩缩容或配置变更；
 - 登录、RBAC 和审计已启用；正式公网开放前仍需补充 HTTPS、CSRF Token、SSO/OIDC 和更严格的会话策略。
 
-## 0.9.0-dev.2 Gate 3
+## 0.9.0-dev.2 Gate 3（历史阶段，已完成）
 
-当前 `release/0.9.0` 已注册九个只读可信工具。新增的重启、rollout、日志、副本 CPU 和应用 RED 工具全部通过 Tool Runtime 执行，不接受自由 PromQL/LogQL，不执行写操作。日志内容按不可信输入处理，发布 Finding 只表示时间相关性。Agent Runtime 尚未启用。
+该阶段完成九个只读可信工具。新增的重启、rollout、日志、副本 CPU 和应用 RED 工具全部通过 Tool Runtime 执行，不接受自由 PromQL/LogQL，不执行写操作。日志内容按不可信输入处理，发布 Finding 只表示时间相关性。当时 Agent Runtime 尚未启用；最终 0.9.0 已完成独立 Shadow/Offline Agent。
 
-## 0.9.0-dev.3 Gate 4
+## 0.9.0-dev.3 Gate 4（历史阶段，已完成）
 
 Gate 4 新增 Snapshot Replay 与 Result Validator。每个新可信调查在 Diagnosis 保存后生成一份不可变的模型可见快照，包含告警上下文、TargetContext、受控工具输入、裁剪后的结构化结果、Finding 和 Diagnosis；不包含 `raw_output_json` 或 Artifact 正文，也不会在重放时访问 Kubernetes、Prometheus 或 Loki。
 
@@ -306,8 +308,8 @@ Validator 检查：
 - 输入 Snapshot Hash、重放正文大小和 raw response 泄漏；
 - 确定性模式不得写入模型假设。
 
-结果状态为 `VALID`、`VALID_WITH_WARNINGS` 或 `INVALID`。校验失败不会改写原始 Finding，也不会被解释为“没有异常”。Agent Runtime 仍未启用。
+结果状态为 `VALID`、`VALID_WITH_WARNINGS` 或 `INVALID`。校验失败不会改写原始 Finding，也不会被解释为“没有异常”。该阶段尚未启用 Agent；最终 0.9.0 已在此 Snapshot/Validator 边界上完成 Agent Runtime。
 
-## 0.9.0-dev.4 Gate 4.1
+## 0.9.0-dev.4 Gate 4.1（历史阶段，已完成）
 
 每个新可信调查在创建 `AnalysisRun` 时立即冻结模型可见输入，写入 `run_input_json`、Schema Version、来源 Hash 和 `native_frozen` 标识。Snapshot Replay 只读取冻结输入，不会因 Incident 后续新增告警、标签变化或 resolved 状态变化而漂移。旧 Run 通过版本化 adapter 和 Run 开始时间截止恢复为 `historical_reconstructed`；无法精确恢复时标记 `legacy_incomplete`。数据库触发器禁止已冻结输入被更新。
