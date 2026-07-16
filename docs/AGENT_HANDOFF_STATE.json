@@ -1,5 +1,5 @@
 {
-  "snapshot_at": "2026-07-16T03:05:01+02:00",
+  "snapshot_at": "2026-07-16T03:41:02+02:00",
   "timezone": "Europe/Amsterdam",
   "project": "Work's K8s / AIOps Console",
   "repository": "git@github.com:3011/ai-ops.git",
@@ -7,9 +7,9 @@
     "version": "0.9.0",
     "status": "released_and_deployed",
     "branch": "release/0.9.0",
-    "deployed_application_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043",
+    "deployed_application_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23",
     "release_tag": "v0.9.0",
-    "release_tag_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043",
+    "release_tag_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23",
     "branch_head_note": "The branch contains or may contain one newer docs-only final handoff commit; the deployed application and v0.9.0 remain on the application commit.",
     "next_version": "TBD"
   },
@@ -22,7 +22,7 @@
     "release": {
       "name": "release/0.9.0",
       "version": "0.9.0",
-      "deployed_application_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043"
+      "deployed_application_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23"
     }
   },
   "paths": {
@@ -39,7 +39,7 @@
   },
   "runtime": {
     "app_version": "0.9.0",
-    "git_commit": "e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043",
+    "git_commit": "6dbac1ebcb5476037bc5645d3c378c86e9c5ee23",
     "investigation_mode": "shadow",
     "components": {
       "aiops-api": "1/1 Running",
@@ -148,8 +148,19 @@
       "clear and refocus password after failure",
       "caps-lock warning",
       "pending-submit protection",
-      "dynamic app version and environment"
-    ]
+      "dynamic app version and environment",
+      "full-viewport flex centering with legacy grid rules removed",
+      "custom AIOps node-network SVG logo"
+    ],
+    "layout_geometry": {
+      "chromium_viewport": "1440x900",
+      "card_horizontal_offset_px": 0,
+      "brand_horizontal_offset_px": 0,
+      "login_group_horizontal_offset_px": 0,
+      "login_group_vertical_offset_px": 0,
+      "logo_box_px": "48x48",
+      "status": "PASS"
+    }
   },
   "test_baseline": {
     "local_unittest_discover": {
@@ -168,7 +179,8 @@
     "python_compileall": "PASS",
     "kubernetes_yaml_client_dry_run": "PASS",
     "live_auth_session_regression": "PASS",
-    "historical_kubernetes_scenarios": "PASS"
+    "historical_kubernetes_scenarios": "PASS",
+    "chromium_login_geometry": "PASS"
   },
   "trusted_tools": [
     {

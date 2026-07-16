@@ -1,10 +1,10 @@
 # AIOps Console Agent 交接手册
 
-> 交接快照时间：2026-07-16 03:05:01 +02:00（Europe/Amsterdam）
+> 交接快照时间：2026-07-16 03:41:02 +02:00（Europe/Amsterdam）
 > 项目：Work's K8s / AIOps Console
 > 当前发布版本：`0.9.0`
 > 发布分支：`release/0.9.0`
-> 当前部署与 `v0.9.0` 应用 Commit：`e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043`
+> 当前部署与 `v0.9.0` 应用 Commit：`6dbac1ebcb5476037bc5645d3c378c86e9c5ee23`
 > 分支 HEAD 在本文件提交后会多一笔 docs-only Commit；应用基线与 Tag 仍以上述 Commit 为准
 
 本文档是后续 Agent 的首要上下文。开始任何修改前，先阅读本文件、`README.md`、`CHANGELOG.md`，再检查实时集群状态。不要仅依赖聊天历史。
@@ -33,7 +33,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://172.30.10.11:30300
 
 ```text
 本地分支：release/0.9.0
-部署应用 Commit / v0.9.0：e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043
+部署应用 Commit / v0.9.0：6dbac1ebcb5476037bc5645d3c378c86e9c5ee23
 分支 HEAD：可能仅比应用 Commit 多一笔 docs-only 最终交接提交
 API 版本：0.9.0
 INVESTIGATION_MODE：shadow
@@ -111,7 +111,7 @@ aiops-web       1/1 Running
 postgresql-0    1/1 Running
 
 APP_VERSION：0.9.0
-GIT_COMMIT：e0b5a3b50ab73fe63c3fbb89ccac3a7ef49c0043
+GIT_COMMIT：6dbac1ebcb5476037bc5645d3c378c86e9c5ee23
 INVESTIGATION_MODE：shadow
 模型：enabled=true，openai-compatible / deepseek-v4-flash
 Trace：enabled=false，未配置真实 Tempo/Jaeger
@@ -1004,7 +1004,7 @@ Model Availability Rate              65.22%  （观测指标，不是安全失�
 错误登录安全审计：已记录
 ```
 
-前端登录页已精简为浅色单卡片布局，文字与输入框使用固定高对比色；继续保留卡片内错误提示、错误后密码清空与自动聚焦、大写锁定提示、提交中防重复操作，以及动态版本/环境标识。
+前端登录页已精简为浅色单卡片布局，文字与输入框使用固定高对比色；已删除 0.7 遗留双栏网格规则，使用全屏 Flex 将品牌区、卡片和页脚作为一个整体精确居中。通用安全证书图标已替换为自定义 AIOps 节点网络 Logo；继续保留卡片内错误提示、错误后密码清空与自动聚焦、大写锁定提示、提交中防重复操作，以及动态版本/环境标识。
 
 ### 15.5 测试基线
 
@@ -1013,6 +1013,7 @@ Model Availability Rate              65.22%  （观测指标，不是安全失�
 独立 Docker Network + PostgreSQL 17：65 PASS，0 skip
 认证路由专项：4 PASS
 前端 npm run build：PASS
+Chromium 1440×900 几何渲染：卡片/品牌/登录组水平偏差 0px，登录组垂直偏差 0px，Logo 48×48，PASS
 Python compileall：PASS
 Kubernetes YAML client dry-run：PASS
 真实 K8s 登录会话回归：PASS
