@@ -1,13 +1,13 @@
-# AIOps Console Agent 交接手册
+# AIOps Console 架构与历史交接手册
 
-> 交接快照时间：2026-07-16 05:36:08 +02:00（Europe/Amsterdam）
-> 项目：Work's K8s / AIOps Console
-> 当前发布版本：`0.9.0`
-> 发布分支：`release/0.9.0`
-> 当前部署与 `v0.9.0` 应用 Commit：`260c6da374a0c5676dcd558af506d25f38d62115`
-> 分支 HEAD 在本文件提交后会多一笔 docs-only Commit；应用基线与 Tag 仍以上述 Commit 为准
+> **状态说明（2026-07-28）**：本文档保留完整架构、数据库、API 和历史阶段背景。其“当前 live 状态”、Commit、计数和部署操作可能已过期。下一位 Agent 必须先阅读 [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) 和 [`ENGINEERING_RULES.md`](ENGINEERING_RULES.md)，实时状态以集群核验与 [`AGENT_HANDOFF_STATE.json`](AGENT_HANDOFF_STATE.json) 为准。
 
-本文档是后续 Agent 的首要上下文。开始任何修改前，先阅读本文件、`README.md`、`CHANGELOG.md`，再检查实时集群状态。不要仅依赖聊天历史。
+> 历史快照时间：2026-07-16 05:36:08 +02:00（Europe/Amsterdam）
+> 当时发布版本：`0.9.0`
+> 当时发布分支：`release/0.9.0`
+> 当时部署与 `v0.9.0` Tag Commit：`260c6da374a0c5676dcd558af506d25f38d62115`
+
+本文档是详细背景参考，不是接管入口。开始任何修改前，先阅读 `CURRENT_HANDOFF.md`、`ENGINEERING_RULES.md`、`README.md` 和 `CHANGELOG.md`，再检查实时集群状态。不要仅依赖聊天历史。
 
 ---
 

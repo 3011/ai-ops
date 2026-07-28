@@ -1,33 +1,33 @@
 {
-  "snapshot_at": "2026-07-16T05:36:08+02:00",
+  "schema_version": "2.0.0",
+  "snapshot_at": "2026-07-28T09:28:13+02:00",
   "timezone": "Europe/Amsterdam",
   "project": "Work's K8s / AIOps Console",
-  "repository": "git@github.com:3011/ai-ops.git",
-  "release_status": {
-    "version": "0.9.0",
-    "status": "released_and_deployed",
-    "branch": "release/0.9.0",
-    "deployed_application_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
-    "release_tag": "v0.9.0",
-    "release_tag_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
-    "branch_head_note": "The branch contains or may contain one newer docs-only final handoff commit; the deployed application and v0.9.0 remain on the application commit.",
-    "next_version": "TBD"
+  "authority": {
+    "human_readable": "docs/CURRENT_HANDOFF.md",
+    "engineering_rules": "docs/ENGINEERING_RULES.md",
+    "architecture_history": "docs/AGENT_HANDOFF.md",
+    "accuracy_method": "docs/ACCURACY_LOOP.md"
   },
-  "branches": {
-    "stable": {
+  "git": {
+    "repository": "git@github.com:3011/ai-ops.git",
+    "stable_branch": {
       "name": "main",
       "commit": "3f5e96c14030c1bfa7b67cadc293f00e55acfb09",
       "version": "0.8.1"
     },
-    "release": {
-      "name": "release/0.9.0",
-      "version": "0.9.0",
-      "deployed_application_commit": "260c6da374a0c5676dcd558af506d25f38d62115"
-    }
+    "development_branch": "release/0.9.0",
+    "runtime_application_commit": "6877ec653e164baa1ff1626140773fe05edefd3f",
+    "release_tag": {
+      "name": "v0.9.0",
+      "commit": "260c6da374a0c5676dcd558af506d25f38d62115"
+    },
+    "note": "Branch HEAD can be newer than the runtime application commit when later commits are documentation-only."
   },
   "paths": {
     "development_repo": "/root/ai-ops",
     "runtime_source": "k8s-cp01:/root/aiops-console",
+    "runtime_backup_dir": "k8s-cp01:/root/aiops-backups",
     "namespace": "aiops-dev"
   },
   "endpoints": {
@@ -39,48 +39,65 @@
   },
   "runtime": {
     "app_version": "0.9.0",
-    "git_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
+    "git_commit": "6877ec653e164baa1ff1626140773fe05edefd3f",
     "investigation_mode": "shadow",
+    "llm_model": "deepseek-v4-flash",
     "components": {
       "aiops-api": "1/1 Running",
       "aiops-worker": "1/1 Running",
       "aiops-web": "1/1 Running",
       "postgresql-0": "1/1 Running"
     },
-    "model": {
-      "provider": "openai-compatible",
-      "base_url": "https://api.deepseek.com",
-      "model": "deepseek-v4-flash",
-      "enabled": true,
-      "api_key_included": false
+    "http": {
+      "healthz": 200,
+      "readyz": 200,
+      "web": 200
     },
-    "trace": {
-      "provider": "tempo",
-      "enabled": false,
-      "configured": false
-    },
-    "queues": {
-      "pending": 0,
-      "retry": 0,
-      "processing": 0,
-      "dead": 0,
-      "succeeded": 87,
-      "skipped": 23
-    },
-    "temporary_test_pods": 0,
-    "non_running_pods": 0
+    "trusted_tool_count": 9,
+    "temporary_test_resources": 0,
+    "recent_backend_errors_30m": 0,
+    "deployment_shape": "development hostPath source with runtime dependency init containers"
   },
-  "database_state": {
+  "version_contracts": {
+    "tool_catalog": "0.9.0",
+    "replay_snapshot_schema": "1.2.0",
+    "replay_validator": "1.2.0",
+    "agent_runtime": "1.1.0",
+    "agent_model_runtime": "1.1.0",
+    "agent_validator": "1.2.0",
+    "agent_prompt": "agent-investigation-v5"
+  },
+  "trusted_tools": [
+    "get_container_termination_status",
+    "get_memory_usage_vs_limit",
+    "get_cpu_usage_vs_request_limit",
+    "get_cpu_throttling",
+    "get_container_restart_history",
+    "get_recent_rollouts",
+    "search_container_logs",
+    "compare_cpu_across_replicas",
+    "get_application_red_metrics"
+  ],
+  "database": {
     "users": 2,
     "roles": 4,
     "permissions": 11,
     "incidents": {
-      "resolved": 36
+      "total": 37,
+      "resolved": 37
     },
     "change_events": 14,
-    "trusted_runs": {
+    "outbox": {
+      "succeeded": 93,
+      "skipped": 23,
+      "pending": 0,
+      "retry": 0,
+      "processing": 0,
+      "dead": 0
+    },
+    "runs": {
       "deterministic": {
-        "COMPLETED_PARTIAL": 41
+        "COMPLETED_PARTIAL": 47
       },
       "agent_offline": {
         "COMPLETED": 7,
@@ -95,7 +112,7 @@
     "model_invocations": {
       "SUCCEEDED": 244
     },
-    "replay_snapshots": {
+    "snapshots": {
       "1.0.0": {
         "VALID": 10,
         "VALID_WITH_WARNINGS": 1,
@@ -107,252 +124,73 @@
         "INVALID": 1
       },
       "1.2.0": {
-        "VALID": 48,
+        "VALID": 54,
         "VALID_WITH_WARNINGS": 12,
         "INVALID": 3
       }
     },
-    "agent_evaluations_0_9_0": {
-      "PASS": 24,
-      "EFFECTIVENESS_WARNING": 27,
-      "FAIL": 9
+    "evaluations": {
+      "0.9.0": {
+        "PASS": 22,
+        "EFFECTIVENESS_WARNING": 13,
+        "FAIL": 2
+      },
+      "0.9.0-rc.1": {
+        "PASS": 2,
+        "EFFECTIVENESS_WARNING": 14,
+        "FAIL": 7
+      }
     },
-    "historical_evaluation_note": "Includes intentionally preserved failed accuracy-loop iterations; use the frozen accuracy report for current gates."
-  },
-  "agent_release_evaluation": {
-    "suite_version": "0.9.0",
-    "sample_size": 23,
-    "status": "PASS",
-    "metrics": {
-      "safety_pass_rate": 1.0,
-      "oom_hard_fact_consistency_rate": 1.0,
-      "target_identity_match_rate": 1.0,
-      "unsupported_hypothesis_rate": 0.0,
-      "useful_tool_call_rate": 0.8958333333333334,
-      "duplicate_tool_call_rate": 0.018055555555555557,
-      "contradiction_check_rate": 0.9057971014492753,
-      "budget_exhaustion_rate": 0.0,
-      "model_availability_rate": 0.6521739130434783
-    },
-    "all_release_gates_passed": true,
-    "status_counts": {
-      "PASS": 10,
-      "EFFECTIVENESS_WARNING": 13,
-      "FAIL": 0
-    }
-  },
-  "authentication_release_validation": {
-    "wrong_password_status": 401,
-    "cache_control": "no-store",
-    "stale_session_cookie_cleared": true,
-    "me_before_failed_login_status": 200,
-    "me_after_failed_login_status": 401,
-    "unknown_user_runs_password_verifier": true,
-    "failed_login_is_audited": true,
-    "ui": [
-      "high-contrast single-card login",
-      "solid light background and explicit dark text",
-      "inline error alert",
-      "clear and refocus password after failure",
-      "caps-lock warning",
-      "pending-submit protection",
-      "dynamic app version and environment",
-      "full-viewport flex centering with legacy grid rules removed",
-      "custom AIOps node-network SVG logo"
-    ],
-    "layout_geometry": {
-      "chromium_viewport": "1440x900",
-      "card_horizontal_offset_px": 0,
-      "brand_horizontal_offset_px": 0,
-      "login_group_horizontal_offset_px": 0,
-      "login_group_vertical_offset_px": 0,
-      "logo_box_px": "48x48",
-      "status": "PASS"
-    }
+    "historical_data_note": "Counts include intentionally preserved failed runs and accuracy iterations. Current release gates are represented by the frozen accuracy report."
   },
   "test_baseline": {
-    "local_unittest_discover": {
+    "verified_at": "2026-07-28T09:30:15+02:00",
+    "backend_unittest_discover": {
       "total": 102,
       "passed": 77,
-      "skipped_isolated_postgresql": 25
-    },
-    "isolated_postgresql_docker_network": {
-      "passed": 65,
-      "skipped": 0
-    },
-    "focused_auth_tests": {
-      "passed": 4
+      "skipped_isolated_postgresql": 25,
+      "status": "PASS"
     },
     "frontend_production_build": "PASS",
-    "python_compileall": "PASS",
-    "kubernetes_yaml_client_dry_run": "PASS",
-    "live_auth_session_regression": "PASS",
-    "historical_kubernetes_scenarios": "PASS",
-    "chromium_login_geometry": "PASS"
+    "frontend_large_chunk_warning": {
+      "chunk": "antd",
+      "size_kb": 988.88,
+      "blocking": false
+    },
+    "frozen_accuracy_report": "reports/accuracy/20260716T024243Z-iteration3.md",
+    "frozen_accuracy_gate": "PASS"
   },
-  "trusted_tools": [
-    {
-      "name": "get_container_termination_status",
-      "version": "1.0.0",
-      "cost_units": 1
-    },
-    {
-      "name": "get_memory_usage_vs_limit",
-      "version": "1.0.0",
-      "cost_units": 3
-    },
-    {
-      "name": "get_cpu_usage_vs_request_limit",
-      "version": "1.0.0",
-      "cost_units": 4
-    },
-    {
-      "name": "get_cpu_throttling",
-      "version": "1.0.0",
-      "cost_units": 3
-    },
-    {
-      "name": "get_container_restart_history",
-      "version": "1.0.0",
-      "cost_units": 2
-    },
-    {
-      "name": "get_recent_rollouts",
-      "version": "1.0.0",
-      "cost_units": 2
-    },
-    {
-      "name": "search_container_logs",
-      "version": "1.0.0",
-      "cost_units": 3
-    },
-    {
-      "name": "compare_cpu_across_replicas",
-      "version": "1.0.0",
-      "cost_units": 5
-    },
-    {
-      "name": "get_application_red_metrics",
-      "version": "1.0.0",
-      "cost_units": 4
-    }
+  "hard_invariants": [
+    "Deterministic findings are the only hard-fact authority.",
+    "Agent child runs never mutate deterministic parent runs or findings.",
+    "Offline replay never accesses live data sources.",
+    "Historical invalid runs and snapshots are preserved.",
+    "Kubernetes access remains read-only and the product performs no automatic remediation.",
+    "Secrets and credentials are never printed or stored in handoff documents."
   ],
-  "historical_invariants": {
-    "run_1_must_remain_invalid": true,
-    "run_1_reason": "TOOL_FINDING_REF_MISMATCH / legacy contract violation",
-    "snapshot_1_2_historical_invalid_count": 1,
-    "trace_backend_available": false,
-    "deterministic_findings_are_hard_fact_authority": true
-  },
-  "secrets_policy": {
-    "contains_secret_values": false,
-    "never_output": [
-      "DeepSeek API key",
-      "bootstrap admin password",
-      "release webhook token",
-      "session secret",
-      "settings encryption key",
-      "database password",
-      "session cookie or bearer token"
-    ]
-  },
-  "agent_failure_classification": {
-    "model_unavailable": {
-      "degradation_reason": "AGENT_MODEL_UNAVAILABLE",
-      "stop_reason": "MODEL_UNAVAILABLE"
-    },
-    "output_contract_failed": {
-      "degradation_reason": "AGENT_OUTPUT_CONTRACT_FAILED",
-      "stop_reason": "OUTPUT_CONTRACT_FAILED",
-      "model_is_considered_available": true
-    },
-    "historical_run_54": {
-      "model_invocations_succeeded": 10,
-      "tool_calls": 7,
-      "actual_failure": "AgentTurn ValidationError: probability percentages are forbidden",
-      "historical_record_mutated": false,
-      "ui_compatibility_classification": "output_contract_failed"
-    }
-  },
-  "accuracy_feedback_loop": {
-    "suite": "core-accuracy-v1",
-    "application_commit": "260c6da374a0c5676dcd558af506d25f38d62115",
-    "scenarios": [
-      "oom-killed",
-      "oom-sampled",
-      "cpu-spike",
-      "oom-negative-control",
-      "cpu-negative-control",
-      "crashloop-coverage"
+  "known_gaps": [
+    "CrashLoop has general BackOff evidence but no deterministic Finding engine.",
+    "Accuracy negative controls should use pre-warmed long-lived fixtures.",
+    "Frontend Ant Design chunk remains large.",
+    "Development deployment is hostPath/dev-server based rather than immutable images.",
+    "Real Trace backend is not enabled.",
+    "Public production hardening still needs HTTPS, SSO/OIDC, CSRF token and stricter sessions."
+  ],
+  "recent_maintenance": {
+    "date": "2026-07-28",
+    "application_commits": [
+      "7be1a6d",
+      "6877ec6"
     ],
-    "isolation": {
-      "namespace": "aiops-dev",
-      "test_label": "aiops_test=true",
-      "temporary_resources_after_run": 0,
-      "active_or_dead_test_jobs_after_run": 0
-    },
-    "frozen_bindings": true,
-    "baseline_report": "reports/accuracy/20260716T024243Z-frozen-baseline.json",
-    "final_report": "reports/accuracy/20260716T024243Z-iteration3.json",
-    "baseline": {
-      "finding_precision": 1.0,
-      "finding_recall": 1.0,
-      "target_accuracy": 1.0,
-      "replay_integrity_rate": 1.0,
-      "agent_safe_validation_rate": 1.0,
-      "agent_model_output_acceptance_rate": 0.4,
-      "agent_useful_result_rate": 0.4,
-      "agent_parent_fact_overlap_rate": 1.0,
-      "pass": false
-    },
-    "final": {
-      "finding_precision": 1.0,
-      "finding_recall": 1.0,
-      "target_accuracy": 1.0,
-      "replay_integrity_rate": 1.0,
-      "agent_safe_validation_rate": 1.0,
-      "agent_model_output_acceptance_rate": 1.0,
-      "agent_useful_result_rate": 1.0,
-      "agent_ground_truth_match_rate": 1.0,
-      "agent_parent_fact_overlap_rate": 1.0,
-      "unsupported_hypothesis_rate": 0.0,
-      "tp": 4,
-      "fp": 0,
-      "fn": 0,
-      "tn": 4,
-      "pass": true
-    },
-    "fixed_feedback": [
-      "safe fallback no longer counts as accepted model output",
-      "metric percentages are distinct from probability/confidence percentages",
-      "Pydantic and independent Validator certainty semantics are aligned",
-      "safe negated uncertainty language is allowed",
-      "positive root-cause assertions such as 根因为/root cause is are rejected",
-      "Incident and deterministic parent Run bindings are frozen for re-evaluation",
-      "Agent usefulness requires semantic Ground Truth match for positive scenarios"
+    "changes": [
+      "Removed uncommitted External DB and duplicate Deployment CPU experimental paths.",
+      "Restored the nine-tool trusted registry.",
+      "Constrained Chinese natural-language output while allowing technical identifiers.",
+      "Made deployment commit injection explicit.",
+      "Restarted API and Worker after hostPath deployment.",
+      "Removed a drifted quota-invalid API sidecar and restored runtime consistency."
     ],
-    "remaining_gaps": [
-      "CrashLoop has general BackOff evidence but no deterministic Finding engine",
-      "negative controls should use pre-warmed baseline fixtures to remove real rollout correlation"
-    ],
-    "preserved_evidence_runs": {
-      "old_oom_failures": [
-        66,
-        68
-      ],
-      "validator_mismatch": [
-        73
-      ],
-      "safe_negation_false_positive": [
-        76
-      ],
-      "repaired": [
-        74,
-        75,
-        77,
-        78,
-        79
-      ]
-    }
-  }
+    "rollback_archive": "k8s-cp01:/root/aiops-backups/aiops-console-pre-7be1a6d-20260728T050648Z.tar.gz"
+  },
+  "next_version": "TBD"
 }

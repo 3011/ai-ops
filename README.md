@@ -8,10 +8,12 @@
 
 ## Agent 交接
 
-后续 Agent 开始工作前必须先阅读：
+后续 Agent 开始工作前按顺序阅读：
 
-- `docs/AGENT_HANDOFF.md`：完整架构、运行状态、开发部署、风险和下一阶段范围；
-- `docs/AGENT_HANDOFF_STATE.json`：可机器读取的交接快照。
+- `docs/CURRENT_HANDOFF.md`：当前运行状态、接管命令、版本边界和近期风险；
+- `docs/ENGINEERING_RULES.md`：开发、测试、部署、安全和完成定义；
+- `docs/AGENT_HANDOFF_STATE.json`：与当前交接同步的机器可读快照；
+- `docs/AGENT_HANDOFF.md`：详细架构与历史背景，不作为实时状态来源。
 
 ## 核心链路
 
@@ -58,7 +60,7 @@ Prometheus → Alertmanager → FastAPI webhook
 0.9.0 在确定性调查之外新增独立 Agent Runtime。确定性 Run 仍是硬事实的唯一权威来源，Agent 只能创建关联的子 Run：
 
 ```text
-Run N   deterministic_cpu_v2 / deterministic_oom_v2
+Run N   deterministic_cpu_v1 / deterministic_oom_v2
 Run N+1 agent_cpu_shadow_v1 / agent_oom_shadow_v1, parent_run_id=N
 ```
 
@@ -249,10 +251,14 @@ Trace 在 `设置 → 集成设置` 中配置。当前支持 Tempo 和 Jaeger；
 
 ## 部署
 
+先在 `/root/ai-ops` 完成提交和受控文件同步，再在 K8s 节点显式传入完整 Commit：
+
 ```bash
-cd /root/aiops-console
-bash deploy/dev/deploy.sh
+ssh k8s 'cd /root/aiops-console && \
+  GIT_COMMIT=<FULL_COMMIT_SHA> bash deploy/dev/deploy.sh'
 ```
+
+完整流程和部署后核验见 `docs/CURRENT_HANDOFF.md`。
 
 ## 场景回归
 

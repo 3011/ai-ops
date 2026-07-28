@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 发布后收敛 - 2026-07-28
+
+- 移除未提交、测试失败且缺少可靠依赖映射的 External DB 实验工具；
+- 移除与现有 CPU 调查重复的 Deployment CPU 平行路线，可信目录恢复为九个工具；
+- Agent、动态查询 Planner 与兼容 LLM 分析的自然语言字段统一要求简体中文，技术标识符可保留原文；
+- 部署脚本支持显式 `GIT_COMMIT`，并在 hostPath 源码更新后自动重启 API 与 Worker；
+- 清理 API Deployment 中无资源配额的残留 sidecar，恢复 Pod 创建与版本一致性；
+- 新增当前交接、工程规范、文档索引和机器可读交接快照，明确实时事实与历史文档的权威层级。
+
 ## 0.9.0 - 可信 Agent Shadow 调查与离线重放
 
 - 新增框架无关 `InvestigationAgent`、`AgentToolRuntime`、输入/输出和 Hypothesis 契约；
