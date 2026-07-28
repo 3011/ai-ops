@@ -4,8 +4,8 @@ ROOT=/root/aiops-console
 NS=aiops-dev
 [[ $(hostname) == k8s-cp01 ]] || { echo "must run on k8s-cp01" >&2; exit 1; }
 kubectl apply -f "$ROOT/deploy/dev/00-base.yaml"
-GIT_COMMIT=""
-if [[ -f "$ROOT/.git/HEAD" ]]; then
+GIT_COMMIT="${GIT_COMMIT:-}"
+if [[ -z "$GIT_COMMIT" && -f "$ROOT/.git/HEAD" ]]; then
   HEAD_VALUE="$(cat "$ROOT/.git/HEAD")"
   if [[ "$HEAD_VALUE" == ref:* ]]; then
     REF_PATH="${HEAD_VALUE#ref: }"
