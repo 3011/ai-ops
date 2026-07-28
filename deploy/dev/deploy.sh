@@ -55,6 +55,8 @@ done
 kubectl apply -f "$ROOT/deploy/dev/20-backend.yaml"
 kubectl apply -f "$ROOT/deploy/dev/30-frontend.yaml"
 kubectl apply -f "$ROOT/deploy/dev/50-alertmanager-config.yaml"
+# hostPath source updates do not restart the long-running worker or reload environment variables.
+kubectl rollout restart deployment/aiops-api deployment/aiops-worker -n "$NS"
 kubectl rollout status deployment/aiops-api -n "$NS" --timeout=300s
 kubectl rollout status deployment/aiops-worker -n "$NS" --timeout=300s
 kubectl rollout status deployment/aiops-web -n "$NS" --timeout=300s
